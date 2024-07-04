@@ -30,14 +30,18 @@ It can be easily modified to work for any university in the USG system
 
 **Note: You will be prompted for your GT password**
 
-**Note: You will also need to confirm on duo 2fa (two factor authentication) one time**
+**Note: You will also need to confirm on duo 2fa (two factor authentication) one time*
+## FAQ
 
-## Help and Contact Info:
-I know that getting code up and running can be very frustrating 😓😖, so please if you have any problems with python or cloning the repo (or anything else) reach out to me at shaunregenbaum@gmail.com or leave an issue 😎😁!
-If you have any others questions at all, please reach out!
+### Chromedriver
 
-## Note: 
+**Installation**
 If you want to get the chromedriver manually, or are having problems, you can download the appropriate chromedriver for your OS from [here](https://sites.google.com/a/chromium.org/chromedriver/home). You will need to manually add this driver to your environment path and and modify the code to correctly reference it [as such](https://chromedriver.chromium.org/getting-started).
 
-## Thanks: 
-Shout out to [Max Karpawich](https://github.com/karpawich) and [Kendall Morgan](https://github.com/kendallm) for their awesome contributions! 
+**Security**
+- **Q: I'm getting "cannot be opened because the developer cannot be verified"**
+  
+Hit cancel and then go to System Settings -> Privacy & Security -> Scroll down to "Allow applications downloaded from..."  and you should see a "<application> was blocked from use" with a button "Allow Anyway" to click.
+![image](https://github.com/RONNCC/OneUSGAutomaticClock/assets/1313566/d0be177c-1985-4d8e-977f-e89c0e6adc5c)
+
+
