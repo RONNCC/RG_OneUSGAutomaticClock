@@ -1,5 +1,0 @@
-chromedriver-autoinstaller>=0.6.4,<1
-selenium>=4.16,<5
-python-dotenv>=1.0.1,<2
-pyotp>=2.9,<3
-plyer>=2.1,<3

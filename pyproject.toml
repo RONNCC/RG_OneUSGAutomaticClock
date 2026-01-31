@@ -1,0 +1,15 @@
+[project]
+name = "oneusg-automatic-clock"
+version = "1.0.0"
+description = "Automatically clock in/out on OneUSG"
+requires-python = ">=3.9"
+dependencies = [
+    "chromedriver-autoinstaller>=0.6.4,<1",
+    "selenium>=4.16,<5",
+    "python-dotenv>=1.0.1,<2",
+    "pyotp>=2.9,<3",
+    "plyer>=2.1,<3",
+]
+
+[project.scripts]
+clock = "clock_manager:main"

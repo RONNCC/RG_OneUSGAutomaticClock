@@ -454,9 +454,8 @@ def main():
 
     parser = argparse.ArgumentParser(
         description='OneUSGAutomaticClock',
-        epilog='Example: uv run python clock_manager.py -m 6 --ui',
+        epilog='Example: uv run python clock_manager.py -m 60 --ui',
     )
-    parser.add_argument('-u', '--username', help="GT Username", required=False)
     parser.add_argument('-m', '--minutes', type=float, help="Minutes to clock (required)", required=True)
     parser.add_argument('--ui', action='store_true', help='Run with visible Chrome UI (default is headless)')
     parser.add_argument('--debug', action='store_true', help='Verbose debug output and artifact dumps on failure')
@@ -464,8 +463,7 @@ def main():
     parser.add_argument('--duo-timeout', type=int, default=int(os.environ.get('ONEUSG_DUO_TIMEOUT', DUO_TIMEOUT_SECONDS)), help='Seconds to wait for Duo/SSO completion')
     args = vars(parser.parse_args())
 
-    if load_dotenv is not None:
-        load_dotenv()
+    load_dotenv()
 
     # Set up logging level based on --debug flag
     if args['debug']:
@@ -475,21 +473,16 @@ def main():
         logging.basicConfig(level=logging.INFO, format='%(message)s')
         logger.setLevel(logging.INFO)
 
-    USERNAME = args['username'] or os.environ.get('ONEUSG_USERNAME', '')
+    USERNAME = os.environ.get('ONEUSG_USERNAME')
+    PASSWORD = os.environ.get('ONEUSG_PASSWORD')
     MINUTES = args['minutes']
     dump_dir = args.get('dump_dir') or None
     DUO_TIMEOUT_SECONDS = int(args.get('duo_timeout') or DUO_TIMEOUT_SECONDS)
 
-    # Password can come from env for convenience; otherwise prompt.
-    PASSWORD = os.environ.get('ONEUSG_PASSWORD', '')
-    if not PASSWORD:
-        PASSWORD = getpass.getpass(prompt='GT Password: ', stream=None)
-
     if not USERNAME:
-        parser.error("Username must be provided via -u/--username flag or ONEUSG_USERNAME environment variable.")
-
+        parser.error("ONEUSG_USERNAME must be set in .env file")
     if not PASSWORD:
-        parser.error("Password must be provided via ONEUSG_PASSWORD environment variable or interactive prompt.")
+        parser.error("ONEUSG_PASSWORD must be set in .env file")
 
     total_seconds = max(0, int(round(MINUTES * 60)))
     chromedriver_autoinstaller.install()
