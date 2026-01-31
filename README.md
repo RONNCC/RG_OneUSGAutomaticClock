@@ -1,6 +1,6 @@
 # ⏰ OneUSGAutomaticClock
 
-Automatically clock in and out on OneUSG for Georgia Tech students. Set a duration, run the script, and it handles the rest—including Duo 2FA.
+Automatically clock in and out on OneUSG for Georgia Tech students/staff. Set a duration, run the script, and it handles the rest—including Duo 2FA.
 
 ## Requirements
 
