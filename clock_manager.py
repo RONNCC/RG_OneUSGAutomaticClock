@@ -1,8 +1,12 @@
+import warnings
+warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL")
+
 import sys
 import time
 import os
 import argparse
 import getpass
+from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse, parse_qs
 
 import logging
@@ -26,6 +30,13 @@ from dotenv import load_dotenv
 import pyotp
 
 logger = logging.getLogger("clock_manager")
+
+
+def get_est_time_str() -> str:
+    """Return current time in EST as a formatted string."""
+    est = timezone(timedelta(hours=-5))
+    now_est = datetime.now(est)
+    return now_est.strftime("%I:%M %p EST")
 
 
 USERNAME = None
@@ -525,7 +536,7 @@ def main():
 
     ctx = init_browser(headless=not args.get('ui'))
 
-    print('\nClocking {0} minutes...\n'.format(MINUTES))
+    print(f'\nClocking {MINUTES} minutes starting at {get_est_time_str()}...\n')
     logger.debug(f"headless={not bool(args.get('ui'))} dump_dir={dump_dir or '(disabled)'} duo_timeout={DUO_TIMEOUT_SECONDS}s")
 
     try:
@@ -554,6 +565,7 @@ def main():
         # It just refreshes the page every fifteen minutes and keeps track of how much time has passed.
         if total_seconds == 0:
             clock_actions.clock_out(ctx)
+            print(f'\nNow clocked out. The current time is {get_est_time_str()}.\n')
             return 0
 
         elapsed_seconds = 0
@@ -574,12 +586,14 @@ def main():
 
             if elapsed_seconds >= total_seconds:
                 clock_actions.clock_out(ctx)
+                print(f'\nNow clocked out. The current time is {get_est_time_str()}.\n')
                 break
 
         # This is just another safety check to make sure we don't ever leave without clocking out first.
         else:
             try:
                 clock_actions.clock_out(ctx)
+                print(f'\nNow clocked out. The current time is {get_est_time_str()}.\n')
             except Exception:
                 browser_utils.dump_artifacts(ctx, "clock_out_exception")
                 print("Make sure you were clocked out please.")

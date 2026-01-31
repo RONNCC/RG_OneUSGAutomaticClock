@@ -2,6 +2,8 @@
 
 Automatically clock in and out on OneUSG for Georgia Tech students/staff. Set a duration, run the script, and it handles the rest—including Duo 2FA.
 
+> **Attribution:** This project is based on [Shaun-Regenbaum/OneUSGAutomaticClock](https://github.com/Shaun-Regenbaum/OneUSGAutomaticClock) by Shaun Regenbaum.
+
 ## Requirements
 
 - **Python 3.9+** — [Download](https://www.python.org/downloads/)
@@ -131,11 +133,4 @@ Check the `./dumps` folder for screenshots and HTML of what the script saw.
 4. Selects "Clock In" and submits
 5. Waits for the specified duration (refreshing periodically to prevent timeout)
 6. Selects "Clock Out" and submits
-
----
-
-## Contributing
-
-PRs welcome! This can be adapted for any USG school—just update the selectors in `selector_defs.py`.
-
 
