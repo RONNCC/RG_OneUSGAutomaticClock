@@ -13,8 +13,8 @@ Automatically clock in and out on OneUSG for Georgia Tech students/staff. Set a 
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/Shaun-Regenbaum/OneUSGAutomaticClock.git
-cd OneUSGAutomaticClock
+git clone https://github.com/RONNCC/RG_OneUSGAutomaticClock.git
+cd RG_OneUSGAutomaticClock
 uv sync
 ```
 
