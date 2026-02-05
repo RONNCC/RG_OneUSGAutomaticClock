@@ -56,6 +56,14 @@ Add this to your `~/.zshrc` or `~/.bashrc` to run from anywhere:
 alias gatech-clock="uv run --project /path/to/OneUSGAutomaticClock python /path/to/OneUSGAutomaticClock/clock_manager.py"
 ```
 
+Quick add (append automatically):
+
+```bash
+echo 'alias gatech-clock="uv run --project /path/to/OneUSGAutomaticClock python /path/to/OneUSGAutomaticClock/clock_manager.py"' >> ~/.zshrc
+```
+
+If you use bash instead of zsh, swap `~/.zshrc` with `~/.bashrc`.
+
 Replace `/path/to/` with your actual path. Then:
 
 ```bash
