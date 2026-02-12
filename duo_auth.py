@@ -9,16 +9,6 @@ import browser_utils
 import selector_defs as selectors
 
 
-def _click_first(ctx: AppContext, candidates, timeout=3, clickable=True):
-    try:
-        el = browser_utils.find_first(ctx, candidates, timeout=timeout, clickable=clickable)
-        if el:
-            return browser_utils.safe_click(ctx, el)
-    except Exception:
-        return False
-    return False
-
-
 def _click_by_text_js(ctx: AppContext, pattern: str, selectors_query: str) -> bool:
     try:
         return ctx.driver.execute_script(
@@ -36,20 +26,6 @@ def _click_by_text_js(ctx: AppContext, pattern: str, selectors_query: str) -> bo
         ) or False
     except Exception:
         return False
-
-
-def find_duo_passcode_input(ctx: AppContext, timeout=6):
-    try:
-        return browser_utils.find_first(ctx, selectors.PASSCODE_INPUT_SELECTORS, timeout=timeout, clickable=True)
-    except Exception:
-        return None
-
-
-def find_duo_verify_button(ctx: AppContext, timeout=6):
-    try:
-        return browser_utils.find_first(ctx, selectors.VERIFY_BUTTON_SELECTORS, timeout=timeout, clickable=False)
-    except Exception:
-        return None
 
 
 def dismiss_passkey_dialog(ctx: AppContext):
@@ -79,7 +55,15 @@ def handle_touchid_canceled_prompt(ctx: AppContext):
     page = ctx.driver.page_source or ""
     if "Couldn't use Touch ID" not in page and "Touch ID has been canceled" not in page:
         return False
-    if _click_first(ctx, selectors.OTHER_OPTIONS_SELECTORS, timeout=1, clickable=True):
+    # Try clicking "Other options"
+    clicked = False
+    try:
+        el = browser_utils.find_first(ctx, selectors.OTHER_OPTIONS_SELECTORS, timeout=1, clickable=True)
+        if el:
+            clicked = browser_utils.safe_click(ctx, el)
+    except Exception:
+        pass
+    if clicked:
         return True
     return _click_by_text_js(ctx, "Other options", "button, a")
 
@@ -104,29 +88,63 @@ def handle_duo_other_options_page(ctx: AppContext):
 def _click_duo_other_options_in_context(ctx: AppContext, get_duo_passcode, set_input_value):
     try:
         dismiss_passkey_dialog(ctx)
-        passcode_input = find_duo_passcode_input(ctx, timeout=2)
+        # Find passcode input
+        passcode_input = None
+        try:
+            passcode_input = browser_utils.find_first(ctx, selectors.PASSCODE_INPUT_SELECTORS, timeout=2, clickable=True)
+        except Exception:
+            pass
         if passcode_input is None:
-            if not _click_first(ctx, selectors.OTHER_OPTIONS_SELECTORS, timeout=3, clickable=True):
+            # Try clicking "Other options"
+            clicked = False
+            try:
+                el = browser_utils.find_first(ctx, selectors.OTHER_OPTIONS_SELECTORS, timeout=3, clickable=True)
+                if el:
+                    clicked = browser_utils.safe_click(ctx, el)
+            except Exception:
+                pass
+            if not clicked:
                 if not _click_by_text_js(ctx, "Other options", "button, a"):
                     return False
         if passcode_input is None:
-            if not _click_first(ctx, selectors.PASSCODE_OPTION_SELECTORS, timeout=3, clickable=True):
+            # Try clicking passcode option
+            clicked = False
+            try:
+                el = browser_utils.find_first(ctx, selectors.PASSCODE_OPTION_SELECTORS, timeout=3, clickable=True)
+                if el:
+                    clicked = browser_utils.safe_click(ctx, el)
+            except Exception:
+                pass
+            if not clicked:
                 if not _click_by_text_js(ctx, "Duo Mobile passcode|Passcode", "button, a, div, span"):
                     return True
-        passcode_input = find_duo_passcode_input(ctx, timeout=6)
+        # Find passcode input again
+        passcode_input = None
+        try:
+            passcode_input = browser_utils.find_first(ctx, selectors.PASSCODE_INPUT_SELECTORS, timeout=6, clickable=True)
+        except Exception:
+            pass
         duo_passcode = get_duo_passcode()
         if duo_passcode and passcode_input is not None:
             time.sleep(0.4)
             set_input_value(passcode_input, duo_passcode)
             time.sleep(0.3)
             # Wait for verify button to become enabled and click it
-            btn_probe = find_duo_verify_button(ctx, timeout=2)
+            btn_probe = None
+            try:
+                btn_probe = browser_utils.find_first(ctx, selectors.VERIFY_BUTTON_SELECTORS, timeout=2, clickable=False)
+            except Exception:
+                pass
             if btn_probe and btn_probe.get_attribute("disabled"):
                 set_input_value(passcode_input, duo_passcode)
                 time.sleep(0.3)
             start = time.time()
             while time.time() - start < 10:
-                btn = find_duo_verify_button(ctx, timeout=2)
+                btn = None
+                try:
+                    btn = browser_utils.find_first(ctx, selectors.VERIFY_BUTTON_SELECTORS, timeout=2, clickable=False)
+                except Exception:
+                    pass
                 if btn:
                     disabled = btn.get_attribute("disabled")
                     aria_disabled = btn.get_attribute("aria-disabled")

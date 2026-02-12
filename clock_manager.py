@@ -1,3 +1,43 @@
+"""
+OneUSG Automatic Clock-In/Out Manager
+======================================
+
+Automates the full OneUSG time-clock workflow via headless Chrome:
+
+  1. Launch Chrome (headless by default, --ui for visible).
+  2. Navigate to the OneUSG clock page URL.
+  3. Select Georgia Tech as the Identity Provider (IdP).
+  4. Log in with GT credentials and complete Duo MFA automatically
+     (TOTP/HOTP via otpauth URI, or waits for manual Duo push).
+  5. Clock in once authenticated.
+  6. Wait for the requested duration, refreshing the page every 15 minutes
+     to prevent OneUSG's session timeout from kicking us out.
+  7. Clock out when the timer expires.
+
+Session recovery:
+  OneUSG's session timeout (~10-15 min) or Chrome crashes can kill the
+  browser mid-wait. If a refresh or clock-out fails due to a dead session,
+  the script automatically spins up a fresh browser, re-authenticates
+  through GT login + Duo, and retries. If recovery fails, a blocking
+  macOS alert tells the user to clock out manually.
+
+Sleep handling:
+  On macOS, runs `caffeinate -i` to prevent idle sleep while clocked in.
+  The countdown uses wall-clock time (not accumulated sleep time) so even
+  if the system briefly sleeps, the timer stays accurate.
+
+Notifications:
+  On macOS, uses native osascript alerts (blocking) and banner
+  notifications (non-blocking). Falls back to terminal print on other
+  platforms.
+
+Usage:
+  uv run python clock_manager.py -m 60          # headless, 60 minutes
+  uv run python clock_manager.py -m 30 --ui     # visible browser, 30 min
+  uv run python clock_manager.py -m 0           # clock in then immediately out
+  uv run python clock_manager.py -m 60 --debug  # verbose logging + artifacts
+"""
+
 import warnings
 warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL")
 
@@ -5,7 +45,7 @@ import sys
 import time
 import os
 import argparse
-import getpass
+import subprocess
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse, parse_qs
 
@@ -41,9 +81,11 @@ def get_est_time_str() -> str:
 
 USERNAME = None
 PASSWORD = None
-MINUTES = None
 DUO_TIMEOUT_SECONDS = 120
-RESTART_REQUESTED = False
+
+
+class RestartRequested(Exception):
+    """Raised when the login flow needs a full browser restart (e.g. idpproxy 400)."""
 
 
 def get_duo_passcode(ctx: AppContext) -> str:
@@ -172,10 +214,6 @@ def _set_input_value(ctx: AppContext, el, value: str) -> None:
             logger.debug(f"JS value set failed: {e}")
 
 
-#=================================================================================================#
-# Functions, each step gets its own function:
-
-# Selecting GT:
 def selectGT(ctx: AppContext):
     # If we're already on the GT login page, don't try to select an IdP.
     if browser_utils.check_existence(ctx, element_to_find="username", method_to_find="name"):
@@ -219,15 +257,13 @@ def selectGT(ctx: AppContext):
         print("Unable to find the Georgia Tech IdP selector on the OneUSG page.")
         print("This usually means the IdP selection DOM changed.")
         print("If you re-run with --debug, the script will save a screenshot + HTML for updating selectors.")
-        ctx.driver.quit()
+        _quiet_quit(ctx.driver)
         return False
 
     return browser_utils.check_existence(ctx, element_to_find="username", method_to_find="name")
 
 
-# This function logs us in once we are at the GT login Page:
 def loginGT(ctx: AppContext):
-    global RESTART_REQUESTED
     gatech_login_username = browser_utils.find_first(ctx, [(By.NAME, "username"), (By.ID, "username")], timeout=25)
     gatech_login_password = browser_utils.find_first(ctx, [(By.NAME, "password"), (By.ID, "password")], timeout=25)
 
@@ -269,11 +305,8 @@ def loginGT(ctx: AppContext):
                     page = ctx.driver.page_source or ""
                     if "HTTP ERROR 400" in page or "Bad Request" in page:
                         browser_utils.dump_artifacts(ctx, "idpproxy_400")
-                        print("...")
                         print("Detected idpproxy HTTP 400. Restarting from the beginning.")
-                        global RESTART_REQUESTED
-                        RESTART_REQUESTED = True
-                        return False
+                        raise RestartRequested()
             except Exception:
                 pass
             
@@ -314,7 +347,7 @@ def loginGT(ctx: AppContext):
         print("...")
         print("Timed out waiting for Duo / OneUSG to finish login.")
         print("If Duo prompts are taking longer, re-run with a higher timeout: --duo-timeout 300")
-        ctx.driver.quit()
+        _quiet_quit(ctx.driver)
         return False
 
     # Handle window switching - OneUSG sometimes opens new windows or the original closes
@@ -361,8 +394,7 @@ def loginGT(ctx: AppContext):
     
     # If direct navigation also failed, request a full restart
     print("Authentication redirect failed. Will restart from the beginning...")
-    RESTART_REQUESTED = True
-    return False
+    raise RestartRequested()
 
 
 def _try_direct_clock_page_navigation(ctx: AppContext):
@@ -458,10 +490,105 @@ def _switch_to_valid_window(ctx: AppContext):
     return False
 
 
+def _quiet_quit(driver):
+    """Quit the driver, capturing Chrome's stderr noise into the debug log."""
+    try:
+        stderr_fd = sys.stderr.fileno()
+        saved = os.dup(stderr_fd)
+        r, w = os.pipe()
+        os.dup2(w, stderr_fd)
+        os.close(w)
+        try:
+            driver.quit()
+        finally:
+            os.dup2(saved, stderr_fd)
+            os.close(saved)
+            captured = os.read(r, 8192).decode("utf-8", errors="replace").strip()
+            os.close(r)
+            if captured:
+                logger.debug(f"[chrome] {captured}")
+    except Exception:
+        try:
+            driver.quit()
+        except Exception:
+            pass
+
+
+def init_browser(headless=True, dump_dir=None):
+    """Initialize a fresh Chrome browser with clean session (no cookies)."""
+    chrome_options = webdriver.ChromeOptions()
+    if headless:
+        chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--window-size=1280,900")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--disable-features=WebAuthentication,WebAuthenticationConditionalUI,WebAuthenticationRemoteDesktopSupport")
+    chrome_options.add_experimental_option("prefs", {
+        "credentials_enable_service": False,
+        "profile.password_manager_enabled": False,
+    })
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-logging"])
+
+    driver = webdriver.Chrome(options=chrome_options)
+    ctx = AppContext(
+        driver=driver,
+        wait=WebDriverWait(driver, 25),
+        mini_wait=WebDriverWait(driver, 5),
+        dump_dir=dump_dir,
+        logger=logger,
+    )
+    try:
+        driver.add_virtual_authenticator(
+            webdriver.common.virtual_authenticator.VirtualAuthenticatorOptions(
+                protocol="ctap2", transport="internal",
+                has_resident_key=True, has_user_verification=True, is_user_verified=True,
+            )
+        )
+    except Exception:
+        pass
+    return ctx
+
+
+def _recover_session(old_ctx, headless, dump_dir):
+    """Kill old browser, start fresh one, re-authenticate. Returns new ctx or None."""
+    try:
+        _quiet_quit(old_ctx.driver)
+    except Exception:
+        pass
+    new_ctx = init_browser(headless=headless, dump_dir=dump_dir)
+    try:
+        new_ctx.driver.get(selectors.CLOCK_PAGE_URL)
+        if selectGT(new_ctx) and loginGT(new_ctx):
+            print("Session recovered successfully.")
+            return new_ctx
+    except Exception:
+        pass
+    try:
+        _quiet_quit(new_ctx.driver)
+    except Exception:
+        pass
+    return None
+
+
+def _clock_out_with_recovery(ctx, headless, dump_dir):
+    """Attempt clock-out, recovering the session if needed. Returns (ctx, success)."""
+    try:
+        if clock_actions.clock_out(ctx):
+            return ctx, True
+    except Exception:
+        logger.debug("clock_out failed, session may be dead — attempting recovery")
+    new_ctx = _recover_session(ctx, headless, dump_dir)
+    if new_ctx is None:
+        return ctx, False
+    try:
+        if clock_actions.clock_out(new_ctx):
+            return new_ctx, True
+    except Exception:
+        logger.debug("clock_out failed even after session recovery")
+    return new_ctx, False
+
+
 def main():
-    global USERNAME, PASSWORD
-    global MINUTES
-    global DUO_TIMEOUT_SECONDS, RESTART_REQUESTED
+    global USERNAME, PASSWORD, DUO_TIMEOUT_SECONDS
 
     parser = argparse.ArgumentParser(
         description='OneUSGAutomaticClock',
@@ -476,148 +603,132 @@ def main():
 
     load_dotenv()
 
-    # Set up logging level based on --debug flag
     if args['debug']:
-        logging.basicConfig(level=logging.DEBUG, format='[%(levelname)s] %(message)s')
+        import tempfile
+        log_file = tempfile.NamedTemporaryFile(
+            prefix="oneusg_debug_", suffix=".log", delete=False, mode="w",
+        )
+        file_handler = logging.FileHandler(log_file.name)
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(logging.Formatter('[%(levelname)s %(asctime)s] %(message)s', datefmt='%H:%M:%S'))
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.DEBUG)
+        console_handler.setFormatter(logging.Formatter('[%(levelname)s] %(message)s'))
+        logging.basicConfig(level=logging.DEBUG, handlers=[console_handler, file_handler])
         logger.setLevel(logging.DEBUG)
+        log_file.close()
+        print(f"Debug log: {log_file.name}")
     else:
         logging.basicConfig(level=logging.INFO, format='%(message)s')
         logger.setLevel(logging.INFO)
 
     USERNAME = os.environ.get('ONEUSG_USERNAME')
     PASSWORD = os.environ.get('ONEUSG_PASSWORD')
-    MINUTES = args['minutes']
-    dump_dir = args.get('dump_dir') or None
     DUO_TIMEOUT_SECONDS = int(args.get('duo_timeout') or DUO_TIMEOUT_SECONDS)
-
     if not USERNAME:
         parser.error("ONEUSG_USERNAME must be set in .env file")
     if not PASSWORD:
         parser.error("ONEUSG_PASSWORD must be set in .env file")
 
-    total_seconds = max(0, int(round(MINUTES * 60)))
+    headless = not args.get('ui')
+    dump_dir = args.get('dump_dir') or None
+    minutes = args['minutes']
+    total_seconds = max(0, int(round(minutes * 60)))
+
     chromedriver_autoinstaller.install()
 
-    def init_browser(headless=True):
-        """Initialize a fresh Chrome browser with clean session (no cookies)."""
-        chrome_options = webdriver.ChromeOptions()
-        if headless:
-            chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--window-size=1280,900")
-        chrome_options.add_argument("--disable-gpu")
-        # Avoid system passkey / WebAuthn prompts in Duo by disabling WebAuthn UI.
-        chrome_options.add_argument("--disable-features=WebAuthentication,WebAuthenticationConditionalUI,WebAuthenticationRemoteDesktopSupport")
-        # Additional prefs to disable passkey prompts
-        chrome_options.add_experimental_option("prefs", {
-            "credentials_enable_service": False,
-            "profile.password_manager_enabled": False,
-        })
-
-        driver = webdriver.Chrome(options=chrome_options)
-        wait = WebDriverWait(driver, 25)
-        mini_wait = WebDriverWait(driver, 5)
-        ctx = AppContext(driver=driver, wait=wait, mini_wait=mini_wait, dump_dir=dump_dir, logger=logger)
-
-        # Set up a virtual authenticator to auto-handle WebAuthn / passkey prompts.
+    # Prevent macOS from idle-sleeping while we're clocked in.
+    caffeinate_proc = None
+    if sys.platform == "darwin":
         try:
-            driver.add_virtual_authenticator(
-                webdriver.common.virtual_authenticator.VirtualAuthenticatorOptions(
-                    protocol="ctap2",
-                    transport="internal",
-                    has_resident_key=True,
-                    has_user_verification=True,
-                    is_user_verified=True,
-                )
-            )
-            logger.debug("Virtual authenticator attached")
-        except Exception as e:
-            logger.debug(f"Could not attach virtual authenticator: {e}")
-        return ctx
+            caffeinate_proc = subprocess.Popen(["caffeinate", "-i"])
+            logger.debug("caffeinate started to prevent idle sleep")
+        except Exception:
+            pass
 
-    ctx = init_browser(headless=not args.get('ui'))
+    ctx = init_browser(headless=headless, dump_dir=dump_dir)
 
-    print(f'\nClocking {MINUTES} minutes starting at {get_est_time_str()}...\n')
-    logger.debug(f"headless={not bool(args.get('ui'))} dump_dir={dump_dir or '(disabled)'} duo_timeout={DUO_TIMEOUT_SECONDS}s")
+    print(f'\nClocking {minutes} minutes starting at {get_est_time_str()}...\n')
 
     try:
-        # Retry login flow once if idpproxy HTTP 400 occurs
+        # Login with one retry on RestartRequested (idpproxy 400, stuck redirect, etc.)
         for attempt in range(2):
-            RESTART_REQUESTED = False
-            ctx.driver.get(selectors.CLOCK_PAGE_URL)
-            if not selectGT(ctx):
-                return 1
-            if not loginGT(ctx):
-                if RESTART_REQUESTED and attempt == 0:
-                    logger.debug("Restarting login flow after idpproxy 400 - closing browser and starting fresh")
-                    # Close the browser completely and start a fresh one with no cookies
+            try:
+                ctx.driver.get(selectors.CLOCK_PAGE_URL)
+                if not selectGT(ctx) or not loginGT(ctx):
+                    return 1
+                break
+            except RestartRequested:
+                if attempt == 0:
+                    logger.debug("RestartRequested — closing browser and retrying")
                     try:
-                        ctx.driver.quit()
+                        _quiet_quit(ctx.driver)
                     except Exception:
                         pass
-                    ctx = init_browser(headless=not args.get('ui'))
+                    ctx = init_browser(headless=headless, dump_dir=dump_dir)
                     continue
                 return 1
-            if not clock_actions.clock_in(ctx):
-                return 1
-            break
 
-        # This is a little loop to make sure we prevent timeouts and to keep track of how long its been
-        # It just refreshes the page every fifteen minutes and keeps track of how much time has passed.
-        if total_seconds == 0:
-            clock_actions.clock_out(ctx)
-            print(f'\nNow clocked out. The current time is {get_est_time_str()}.\n')
-            return 0
+        if not clock_actions.clock_in(ctx):
+            return 1
 
-        elapsed_seconds = 0
-        refresh_interval = 15 * 60
-        while elapsed_seconds < total_seconds:
-            if elapsed_seconds == 0 or (elapsed_seconds % refresh_interval) == 0:
-                browser_utils.prevent_timeout(ctx)
-
-            remaining_seconds = total_seconds - elapsed_seconds
-            sleep_chunk = min(60, remaining_seconds)
-            time.sleep(sleep_chunk)
-            elapsed_seconds += sleep_chunk
-
-            minutes_done = int(elapsed_seconds // 60)
-            minutes_left = max(0, round((total_seconds - elapsed_seconds) / 60, 2))
-            print(f"{minutes_done} minutes done, roughly {minutes_left} minutes left to go.")
-            print("...")
-
-            if elapsed_seconds >= total_seconds:
-                clock_actions.clock_out(ctx)
-                print(f'\nNow clocked out. The current time is {get_est_time_str()}.\n')
+        # Keep session alive by refreshing every 15 min, then clock out.
+        # Uses wall-clock time so laptop sleep doesn't cause the countdown to drift.
+        start_time = time.time()
+        last_refresh_at = -1
+        while True:
+            elapsed = time.time() - start_time
+            if elapsed >= total_seconds:
                 break
 
-        # This is just another safety check to make sure we don't ever leave without clocking out first.
+            # Refresh every 15 min (by wall clock, not sleep accumulation)
+            refresh_bucket = int(elapsed) // (15 * 60)
+            if last_refresh_at < refresh_bucket:
+                last_refresh_at = refresh_bucket
+                if not browser_utils.prevent_timeout(ctx):
+                    print("Browser session lost. Attempting to recover...")
+                    new_ctx = _recover_session(ctx, headless, dump_dir)
+                    if new_ctx is None:
+                        notify_user_with_ack(
+                            "Clock manager - session lost",
+                            "Browser session died and recovery failed. Please clock out manually!",
+                            require_ack=True,
+                        )
+                        return 1
+                    ctx = new_ctx
+
+            remaining = total_seconds - elapsed
+            time.sleep(min(60, remaining))
+            elapsed = time.time() - start_time
+            print(f"{int(elapsed // 60)} minutes done, roughly {max(0, (total_seconds - elapsed) / 60):.1f} minutes left to go.")
+
+        ctx, ok = _clock_out_with_recovery(ctx, headless, dump_dir)
+        if ok:
+            print(f'\nNow clocked out. The current time is {get_est_time_str()}.\n')
         else:
-            try:
-                clock_actions.clock_out(ctx)
-                print(f'\nNow clocked out. The current time is {get_est_time_str()}.\n')
-            except Exception:
-                browser_utils.dump_artifacts(ctx, "clock_out_exception")
-                print("Make sure you were clocked out please.")
+            browser_utils.dump_artifacts(ctx, "clock_out_failed")
+            notify_user_with_ack("Clock-out failed", "Could not clock out. Please clock out manually!", require_ack=True)
+            return 1
         return 0
     except Exception as e:
         browser_utils.dump_artifacts(ctx, "unhandled_exception")
         if logger.level <= logging.DEBUG:
             raise
-        print("...")
-        print("Unexpected error. Re-run with --debug to see details and save a screenshot/HTML.")
-        print(str(e))
-        notify_user_with_ack(
-            "Clock manager error",
-            "Unexpected error occurred. Please check the terminal output and verify your timecard.",
-            require_ack=True,
-        )
+        print(f"Unexpected error. Re-run with --debug to see details.\n{e}")
+        notify_user_with_ack("Clock manager error", "Unexpected error occurred. Please check the terminal and verify your timecard.", require_ack=True)
         return 1
     finally:
         try:
             if ctx and ctx.driver is not None:
-                ctx.driver.quit()
-                ctx.driver = None
+                _quiet_quit(ctx.driver)
         except Exception:
             pass
+        if caffeinate_proc:
+            try:
+                caffeinate_proc.terminate()
+                caffeinate_proc.wait(timeout=5)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

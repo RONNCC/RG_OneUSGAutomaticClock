@@ -82,14 +82,21 @@ def dump_artifacts(ctx: AppContext, tag: str) -> None:
 
 
 def prevent_timeout(ctx: AppContext):
-    """Refresh page and dismiss any timeout dialogs."""
-    ctx.driver.refresh()
+    """Refresh page and dismiss any timeout dialogs.
+
+    Returns True on success, False if the browser session is dead.
+    """
+    try:
+        ctx.driver.refresh()
+    except Exception:
+        return False
     try:
         el = ctx.driver.find_element("id", "BOR_INSTALL_VW$0_row_0")
         el.send_keys("\r")
         print("Timeout Prevented")
     except (NoSuchElementException, TimeoutException):
         pass
+    return True
 
 
 def check_existence(ctx: AppContext, element_to_find, method_to_find="id"):

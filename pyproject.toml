@@ -2,6 +2,8 @@
 name = "oneusg-automatic-clock"
 version = "1.0.0"
 description = "Automatically clock in/out on OneUSG"
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.9"
 dependencies = [
     "chromedriver-autoinstaller>=0.6.4,<1",
