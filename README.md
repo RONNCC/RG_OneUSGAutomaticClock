@@ -20,9 +20,9 @@ cd RG_OneUSGAutomaticClock
 uv sync
 ```
 
-useful alias
+useful alias for `.zshrc`
 ```
-gatech-clock='uv run --project /Users/ronnie.ghose/src/priv/RG_OneUSGAutomaticClock python /Users/ronnie.ghose/src/priv/RG_OneUSGAutomaticClock/clock_manager.py'
+alias gatech-clock='uv run --project /Users/ronnie.ghose/src/priv/RG_OneUSGAutomaticClock python /Users/ronnie.ghose/src/priv/RG_OneUSGAutomaticClock/clock_manager.py'
 ```
 
 ### 2. Create your `.env` file
