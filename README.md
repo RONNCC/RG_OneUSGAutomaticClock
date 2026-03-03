@@ -20,6 +20,11 @@ cd RG_OneUSGAutomaticClock
 uv sync
 ```
 
+useful alias
+```
+gatech-clock='uv run --project /Users/ronnie.ghose/src/priv/RG_OneUSGAutomaticClock python /Users/ronnie.ghose/src/priv/RG_OneUSGAutomaticClock/clock_manager.py'
+```
+
 ### 2. Create your `.env` file
 
 Create a file named `.env` in the project folder:
