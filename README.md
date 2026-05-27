@@ -8,7 +8,7 @@ Automatically clock in and out on OneUSG for Georgia Tech students/staff. Set a 
 
 - **Python 3.9+** — [Download](https://www.python.org/downloads/)
 - **uv** — [Install uv](https://docs.astral.sh/uv/getting-started/installation/)
-- **Chrome** — Chromedriver is auto-installed
+- **Chrome** — Chromedriver is auto-installed when needed
 
 ## Quick Start
 
@@ -27,13 +27,21 @@ alias gatech-clock='uv run --project /Users/ronnie.ghose/src/priv/RG_OneUSGAutom
 
 ### 2. Create your `.env` file
 
-Create a file named `.env` in the project folder:
+Start from `.env.example`, then fill in your real values:
+
+```bash
+cp .env.example .env
+```
+
+Example values:
 
 ```
 ONEUSG_USERNAME=gburdell3
 ONEUSG_PASSWORD=your_password_here
 ONEUSG_DUO_OTP_URI=otpauth://totp/Duo:gburdell3?secret=ABCD1234...&issuer=Duo
 ```
+
+If you're Ronnie and need to recover or rotate your config, look in Thycotic, 1Password, or LastPass.
 
 ### 3. Run it
 
@@ -105,6 +113,8 @@ gatech-clock --help
 | `ONEUSG_DUO_OTP_URI` | Recommended | TOTP URI for automatic Duo 2FA |
 | `ONEUSG_DUO_TIMEOUT` | Optional | Seconds to wait for Duo (default: 120) |
 | `ONEUSG_DUMP_DIR` | Optional | Directory for debug screenshots/HTML |
+
+Use `.env.example` as the template any time you move this project to a new machine or folder.
 
 ---
 

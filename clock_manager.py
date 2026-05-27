@@ -60,6 +60,7 @@ from notifications import notify_user_with_ack
 
 from selenium import webdriver
 import chromedriver_autoinstaller
+from chromedriver_autoinstaller import utils as chromedriver_utils
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
@@ -70,6 +71,39 @@ from dotenv import load_dotenv
 import pyotp
 
 logger = logging.getLogger("clock_manager")
+
+
+def ensure_chromedriver_installed() -> str:
+    """Install chromedriver only when needed and only announce real installs."""
+    install_needed = False
+    chrome_version = chromedriver_utils.get_chrome_version()
+
+    if chrome_version:
+        chromedriver_version, _download_options = chromedriver_utils.get_matched_chromedriver_version(chrome_version)
+        if chromedriver_version:
+            major_version = chromedriver_utils.get_major_version(chromedriver_version)
+            chromedriver_filename = chromedriver_utils.get_chromedriver_filename()
+            chromedriver_dir = os.path.join(chromedriver_utils.get_chromedriver_path(), major_version)
+            chromedriver_filepath = os.path.join(chromedriver_dir, chromedriver_filename)
+            install_needed = not os.path.isfile(chromedriver_filepath) or not chromedriver_utils.check_version(
+                chromedriver_filepath, chromedriver_version
+            )
+
+    root_logger = logging.getLogger()
+    previous_level = root_logger.level
+    if not install_needed:
+        root_logger.setLevel(max(previous_level, logging.WARNING))
+
+    try:
+        driver_path = chromedriver_autoinstaller.install()
+    finally:
+        if not install_needed:
+            root_logger.setLevel(previous_level)
+
+    if install_needed and driver_path:
+        print("Installing chromedriver for the local Chrome version...")
+
+    return driver_path
 
 
 def get_est_time_str() -> str:
@@ -279,6 +313,35 @@ def loginGT(ctx: AppContext):
         clickable=True,
     )
     submit_button.click()
+
+    # Fail fast if GT rejects the credentials instead of falling through into Duo/OneUSG checks.
+    try:
+        WebDriverWait(ctx.driver, 5).until(
+            lambda driver: (
+                clock_actions.is_on_clock_page(ctx)
+                or "sso.gatech.edu/cas/login" not in (driver.current_url or "")
+                or "invalid credentials" in (driver.page_source or "").lower()
+            )
+        )
+    except TimeoutException:
+        pass
+
+    try:
+        current_url = ctx.driver.current_url or ""
+        page_source = (ctx.driver.page_source or "").lower()
+        if "sso.gatech.edu/cas/login" in current_url and browser_utils.check_existence(ctx, element_to_find="username", method_to_find="name") and (
+            "invalid credentials" in page_source
+            or "enter your gt account and password" in page_source
+        ):
+            browser_utils.dump_artifacts(ctx, "gatech_login_failed")
+            print("...")
+            print("Georgia Tech login failed before Duo started.")
+            print("The GT login page reported invalid credentials or returned to the login form.")
+            print("Check ONEUSG_USERNAME / ONEUSG_PASSWORD in your .env, then retry.")
+            _quiet_quit(ctx.driver)
+            return False
+    except Exception as e:
+        logger.debug(f"GT login failure detection skipped: {e}")
 
     print("...")
     print("...")
@@ -635,7 +698,7 @@ def main():
     minutes = args['minutes']
     total_seconds = max(0, int(round(minutes * 60)))
 
-    chromedriver_autoinstaller.install()
+    ensure_chromedriver_installed()
 
     # Prevent macOS from idle-sleeping while we're clocked in.
     caffeinate_proc = None
