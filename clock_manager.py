@@ -45,9 +45,11 @@ import sys
 import time
 import os
 import argparse
+import socket
 import subprocess
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse, parse_qs
+from urllib.error import URLError
 
 import logging
 
@@ -74,33 +76,42 @@ logger = logging.getLogger("clock_manager")
 
 
 def ensure_chromedriver_installed() -> str:
-    """Install chromedriver only when needed and only announce real installs."""
-    install_needed = False
+    """Install chromedriver when needed, but tolerate offline runs with a cached driver."""
     chrome_version = chromedriver_utils.get_chrome_version()
+    cached_driver_path = ""
 
     if chrome_version:
-        chromedriver_version, _download_options = chromedriver_utils.get_matched_chromedriver_version(chrome_version)
-        if chromedriver_version:
-            major_version = chromedriver_utils.get_major_version(chromedriver_version)
-            chromedriver_filename = chromedriver_utils.get_chromedriver_filename()
-            chromedriver_dir = os.path.join(chromedriver_utils.get_chromedriver_path(), major_version)
-            chromedriver_filepath = os.path.join(chromedriver_dir, chromedriver_filename)
-            install_needed = not os.path.isfile(chromedriver_filepath) or not chromedriver_utils.check_version(
-                chromedriver_filepath, chromedriver_version
-            )
+        chrome_major_version = chromedriver_utils.get_major_version(chrome_version)
+        chromedriver_filename = chromedriver_utils.get_chromedriver_filename()
+        cached_driver_path = os.path.join(
+            chromedriver_utils.get_chromedriver_path(),
+            chrome_major_version,
+            chromedriver_filename,
+        )
+
+    had_cached_driver = bool(cached_driver_path and os.path.isfile(cached_driver_path))
 
     root_logger = logging.getLogger()
     previous_level = root_logger.level
-    if not install_needed:
+    if had_cached_driver:
         root_logger.setLevel(max(previous_level, logging.WARNING))
 
     try:
         driver_path = chromedriver_autoinstaller.install()
+    except (URLError, socket.gaierror) as exc:
+        if had_cached_driver:
+            logger.warning(
+                "Chromedriver network lookup/install failed (%s). Using cached driver at %s.",
+                exc,
+                cached_driver_path,
+            )
+            return cached_driver_path
+        raise
     finally:
-        if not install_needed:
+        if had_cached_driver:
             root_logger.setLevel(previous_level)
 
-    if install_needed and driver_path:
+    if not had_cached_driver and driver_path:
         print("Installing chromedriver for the local Chrome version...")
 
     return driver_path
@@ -183,6 +194,14 @@ def get_duo_passcode(ctx: AppContext) -> str:
         except Exception as e:
             logger.debug(f"HOTP generation failed: {e}")
     return os.environ.get("ONEUSG_DUO_PASSCODE", "")
+
+
+def is_duo_auto_auth_configured() -> bool:
+    """Return whether Duo passcode automation is configured."""
+    return any(
+        os.environ.get(name, "").strip()
+        for name in ("ONEUSG_DUO_OTP_URI", "ONEUSG_DUO_HOTP_SECRET", "ONEUSG_DUO_PASSCODE")
+    )
 
 
 def _set_input_value(ctx: AppContext, el, value: str) -> None:
@@ -345,8 +364,12 @@ def loginGT(ctx: AppContext):
 
     print("...")
     print("...")
-    print("Script will wait for you to authenticate on duo")
-    print("If you run out of time, just run the script again")
+    if is_duo_auto_auth_configured():
+        print("Script will try to complete Duo automatically using the configured passcode/TOTP.")
+        print("If Duo still prompts for approval, complete it manually before the timeout.")
+    else:
+        print("Script is waiting for you to complete Duo authentication.")
+        print("If you run out of time, just run the script again.")
     print("...")
 
     # Duo is often an iframe / Universal Prompt; keep nudging toward "Other options" and Duo Push.
