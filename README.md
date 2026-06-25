@@ -166,10 +166,18 @@ Check the `./dumps` folder for screenshots and HTML of what the script saw.
 
 ## How It Works
 
+**Normal mode** (`-m <minutes>`):
 1. Opens OneUSG timecard page
 2. Logs in with your GT credentials
 3. Handles Duo 2FA (automatically if OTP URI is set, otherwise waits for push)
 4. Selects "Clock In" and submits
 5. Waits for the specified duration (refreshing periodically to prevent timeout)
 6. Selects "Clock Out" and submits
+
+**Recovery / immediate clock-out mode** (`--clock-out` or `-m 0` / negative):
+1. Opens OneUSG timecard page
+2. Logs in with your GT credentials
+3. Handles Duo 2FA
+4. Skips clock-in entirely
+5. Selects "Clock Out" and submits (with automatic session recovery if needed)
 

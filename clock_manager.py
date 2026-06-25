@@ -34,7 +34,7 @@ Notifications:
 Usage:
   uv run python clock_manager.py -m 60          # headless, 60 minutes
   uv run python clock_manager.py -m 30 --ui     # visible browser, 30 min
-  uv run python clock_manager.py -m 0           # clock in then immediately out
+  uv run python clock_manager.py -m 0           # skip clock-in, clock out immediately (same as --clock-out)
   uv run python clock_manager.py -m -1          # same: 0 or negative = clock out immediately
   uv run python clock_manager.py --clock-out    # skip clock-in, just clock out (recovery mode)
   uv run python clock_manager.py -m 60 --debug  # verbose logging + artifacts
