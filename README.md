@@ -95,6 +95,12 @@ gatech-clock -m 60
 # Show the browser window while running
 gatech-clock -m 60 --ui
 
+# Clock out immediately without clocking in (recovery mode)
+gatech-clock --clock-out
+
+# 0 or negative minutes also clock out immediately
+gatech-clock -m 0
+
 # Debug mode (saves screenshots/HTML on failure)
 gatech-clock -m 60 --debug --dump-dir ./dumps
 
@@ -134,6 +140,16 @@ If you haven't set up `ONEUSG_DUO_OTP_URI`, you'll need to manually approve the 
 
 ```bash
 gatech-clock -m 60 --duo-timeout 300
+```
+
+### Clock-out failed / forgot to clock out
+
+If a previous session crashed before clocking you out, use recovery mode — it logs in fresh and clocks out immediately without clocking in again:
+
+```bash
+gatech-clock --clock-out
+# or equivalently:
+gatech-clock -m 0
 ```
 
 ### Something else broke
