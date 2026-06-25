@@ -35,6 +35,8 @@ Usage:
   uv run python clock_manager.py -m 60          # headless, 60 minutes
   uv run python clock_manager.py -m 30 --ui     # visible browser, 30 min
   uv run python clock_manager.py -m 0           # clock in then immediately out
+  uv run python clock_manager.py -m -1          # same: 0 or negative = clock out immediately
+  uv run python clock_manager.py --clock-out    # skip clock-in, just clock out (recovery mode)
   uv run python clock_manager.py -m 60 --debug  # verbose logging + artifacts
 """
 
@@ -680,12 +682,16 @@ def main():
         description='OneUSGAutomaticClock',
         epilog='Example: uv run python clock_manager.py -m 60 --ui',
     )
-    parser.add_argument('-m', '--minutes', type=float, help="Minutes to clock (required)", required=True)
+    parser.add_argument('-m', '--minutes', type=float, help="Minutes to clock. Use 0 or negative to clock out immediately after clocking in. Omit when using --clock-out.")
+    parser.add_argument('--clock-out', action='store_true', help='Skip clock-in and clock out immediately (recovery mode for failed clock-outs)')
     parser.add_argument('--ui', action='store_true', help='Run with visible Chrome UI (default is headless)')
     parser.add_argument('--debug', action='store_true', help='Verbose debug output and artifact dumps on failure')
     parser.add_argument('--dump-dir', default=os.environ.get('ONEUSG_DUMP_DIR', ''), help='Directory to write debug artifacts (png/html/url)')
     parser.add_argument('--duo-timeout', type=int, default=int(os.environ.get('ONEUSG_DUO_TIMEOUT', DUO_TIMEOUT_SECONDS)), help='Seconds to wait for Duo/SSO completion')
     args = vars(parser.parse_args())
+
+    if args.get('minutes') is None and not args.get('clock_out'):
+        parser.error("Either -m/--minutes or --clock-out is required")
 
     load_dotenv()
 
@@ -718,7 +724,8 @@ def main():
 
     headless = not args.get('ui')
     dump_dir = args.get('dump_dir') or None
-    minutes = args['minutes']
+    clock_out_only = args.get('clock_out') or (args.get('minutes') is not None and args['minutes'] <= 0)
+    minutes = args.get('minutes') or 0
     total_seconds = max(0, int(round(minutes * 60)))
 
     ensure_chromedriver_installed()
@@ -734,7 +741,10 @@ def main():
 
     ctx = init_browser(headless=headless, dump_dir=dump_dir)
 
-    print(f'\nClocking {minutes} minutes starting at {get_est_time_str()}...\n')
+    if clock_out_only:
+        print(f'\nClocking out immediately at {get_est_time_str()} (recovery / immediate clock-out mode)...\n')
+    else:
+        print(f'\nClocking {minutes} minutes starting at {get_est_time_str()}...\n')
 
     try:
         # Login with one retry on RestartRequested (idpproxy 400, stuck redirect, etc.)
@@ -755,38 +765,42 @@ def main():
                     continue
                 return 1
 
-        if not clock_actions.clock_in(ctx):
-            return 1
+        if clock_out_only:
+            # Recovery / immediate clock-out: skip clock-in entirely.
+            pass
+        else:
+            if not clock_actions.clock_in(ctx):
+                return 1
 
-        # Keep session alive by refreshing every 15 min, then clock out.
-        # Uses wall-clock time so laptop sleep doesn't cause the countdown to drift.
-        start_time = time.time()
-        last_refresh_at = -1
-        while True:
-            elapsed = time.time() - start_time
-            if elapsed >= total_seconds:
-                break
+            # Keep session alive by refreshing every 15 min, then clock out.
+            # Uses wall-clock time so laptop sleep doesn't cause the countdown to drift.
+            start_time = time.time()
+            last_refresh_at = -1
+            while True:
+                elapsed = time.time() - start_time
+                if elapsed >= total_seconds:
+                    break
 
-            # Refresh every 15 min (by wall clock, not sleep accumulation)
-            refresh_bucket = int(elapsed) // (15 * 60)
-            if last_refresh_at < refresh_bucket:
-                last_refresh_at = refresh_bucket
-                if not browser_utils.prevent_timeout(ctx):
-                    print("Browser session lost. Attempting to recover...")
-                    new_ctx = _recover_session(ctx, headless, dump_dir)
-                    if new_ctx is None:
-                        notify_user_with_ack(
-                            "Clock manager - session lost",
-                            "Browser session died and recovery failed. Please clock out manually!",
-                            require_ack=True,
-                        )
-                        return 1
-                    ctx = new_ctx
+                # Refresh every 15 min (by wall clock, not sleep accumulation)
+                refresh_bucket = int(elapsed) // (15 * 60)
+                if last_refresh_at < refresh_bucket:
+                    last_refresh_at = refresh_bucket
+                    if not browser_utils.prevent_timeout(ctx):
+                        print("Browser session lost. Attempting to recover...")
+                        new_ctx = _recover_session(ctx, headless, dump_dir)
+                        if new_ctx is None:
+                            notify_user_with_ack(
+                                "Clock manager - session lost",
+                                "Browser session died and recovery failed. Please clock out manually!",
+                                require_ack=True,
+                            )
+                            return 1
+                        ctx = new_ctx
 
-            remaining = total_seconds - elapsed
-            time.sleep(min(60, remaining))
-            elapsed = time.time() - start_time
-            print(f"{int(elapsed // 60)} minutes done, roughly {max(0, (total_seconds - elapsed) / 60):.1f} minutes left to go.")
+                remaining = total_seconds - elapsed
+                time.sleep(min(60, remaining))
+                elapsed = time.time() - start_time
+                print(f"{int(elapsed // 60)} minutes done, roughly {max(0, (total_seconds - elapsed) / 60):.1f} minutes left to go.")
 
         ctx, ok = _clock_out_with_recovery(ctx, headless, dump_dir)
         if ok:
