@@ -152,6 +152,12 @@ gatech-clock --clock-out
 gatech-clock -m 0
 ```
 
+Note: if you're already clocked out by the time this runs (e.g. the original
+punch actually landed on the server before the session died), the script
+exits successfully (exit code 0) instead of treating "nothing to clock out
+from" as a failure. Clock-out success means "you end up clocked out," not
+"a new punch was submitted."
+
 ### Something else broke
 
 Run with debug mode to capture what's happening:

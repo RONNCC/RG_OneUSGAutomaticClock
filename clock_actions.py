@@ -11,12 +11,16 @@ from notifications import notify_user_with_ack
 def select_punch_and_submit(ctx: AppContext, punch_value, punch_name):
     try:
         if punch_name.lower() == "out" and is_already_clocked_out(ctx):
+            # Already-out is a success, not a failure: the goal of clock_out() is
+            # "make sure I'm clocked out", and there's nothing left to punch. Returning
+            # False here would make main() report a false failure exit code and fire a
+            # misleading "clock out manually" alert during session-recovery retries.
             notify_user_with_ack(
                 "Already clocked out",
                 "NOTICE: You're already marked as clocked Out. This usually means the last session didn't stop cleanly or you already clocked out. Please verify your timecard.",
                 require_ack=False,
             )
-            return False
+            return True
         punch_dropdown = browser_utils.find_first(ctx, selectors.PUNCH_DROPDOWN_SELECTORS, timeout=30, clickable=True)
         Select(punch_dropdown).select_by_value(punch_value)
         time.sleep(1)
@@ -61,6 +65,8 @@ def is_on_clock_page(ctx: AppContext):
 
 
 def is_already_clocked_out(ctx: AppContext):
+    """Check the timecard status text. Used by select_punch_and_submit to treat
+    an already-out state as clock-out success rather than failure."""
     candidates = ["TL_WEB_CLOCK_WK_DESCR50_1", "TL_RPTD_SFF_WK_DESCR50_1"]
     for element_id in candidates:
         try:

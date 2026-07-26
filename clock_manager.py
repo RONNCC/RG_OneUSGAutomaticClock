@@ -21,6 +21,12 @@ Session recovery:
   through GT login + Duo, and retries. If recovery fails, a blocking
   macOS alert tells the user to clock out manually.
 
+  Clock-out success is defined as "ends up clocked out", not "submitted a
+  new punch". If the timecard already shows clocked-out (e.g. the punch
+  from before a session death actually landed server-side, and a recovery
+  retry just observes that), that counts as success — exit code 0, no
+  manual-clock-out alert. See clock_actions.select_punch_and_submit.
+
 Sleep handling:
   On macOS, runs `caffeinate -i` to prevent idle sleep while clocked in.
   The countdown uses wall-clock time (not accumulated sleep time) so even
