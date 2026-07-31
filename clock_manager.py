@@ -753,23 +753,23 @@ def main():
         print(f'\nClocking {minutes} minutes starting at {get_est_time_str()}...\n')
 
     try:
-        # Login with one retry on RestartRequested (idpproxy 400, stuck redirect, etc.)
+        # Login with one retry on any failure (session death, RestartRequested, etc.)
         for attempt in range(2):
             try:
                 ctx.driver.get(selectors.CLOCK_PAGE_URL)
                 if not selectGT(ctx) or not loginGT(ctx):
                     return 1
                 break
-            except RestartRequested:
+            except Exception as login_err:
                 if attempt == 0:
-                    logger.debug("RestartRequested — closing browser and retrying")
+                    logger.debug("Login attempt failed (%s) — closing browser and retrying", login_err)
                     try:
                         _quiet_quit(ctx.driver)
                     except Exception:
                         pass
                     ctx = init_browser(headless=headless, dump_dir=dump_dir)
                     continue
-                return 1
+                raise
 
         if clock_out_only:
             # Recovery / immediate clock-out: skip clock-in entirely.
