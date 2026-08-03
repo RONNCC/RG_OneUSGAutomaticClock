@@ -71,20 +71,27 @@ from notifications import notify_user_with_ack
 from selenium import webdriver
 import chromedriver_autoinstaller
 from chromedriver_autoinstaller import utils as chromedriver_utils
+from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import InvalidSessionIdException, TimeoutException
 
 from dotenv import load_dotenv
 import pyotp
 
 logger = logging.getLogger("clock_manager")
 
+_driver_path_cache = None
+
 
 def ensure_chromedriver_installed() -> str:
     """Install chromedriver when needed, but tolerate offline runs with a cached driver."""
+    global _driver_path_cache
+    if _driver_path_cache is not None:
+        return _driver_path_cache
+
     chrome_version = chromedriver_utils.get_chrome_version()
     cached_driver_path = ""
 
@@ -113,6 +120,7 @@ def ensure_chromedriver_installed() -> str:
                 exc,
                 cached_driver_path,
             )
+            _driver_path_cache = cached_driver_path
             return cached_driver_path
         raise
     finally:
@@ -122,6 +130,7 @@ def ensure_chromedriver_installed() -> str:
     if not had_cached_driver and driver_path:
         print("Installing chromedriver for the local Chrome version...")
 
+    _driver_path_cache = driver_path
     return driver_path
 
 
@@ -401,6 +410,8 @@ def loginGT(ctx: AppContext):
                         browser_utils.dump_artifacts(ctx, "idpproxy_400")
                         print("Detected idpproxy HTTP 400. Restarting from the beginning.")
                         raise RestartRequested()
+            except (RestartRequested, InvalidSessionIdException):
+                raise
             except Exception:
                 pass
             
@@ -622,7 +633,9 @@ def init_browser(headless=True, dump_dir=None):
     })
     chrome_options.add_experimental_option("excludeSwitches", ["enable-logging"])
 
-    driver = webdriver.Chrome(options=chrome_options)
+    driver_path = ensure_chromedriver_installed()
+    service = ChromeService(executable_path=driver_path) if driver_path else None
+    driver = webdriver.Chrome(service=service, options=chrome_options)
     ctx = AppContext(
         driver=driver,
         wait=WebDriverWait(driver, 25),
