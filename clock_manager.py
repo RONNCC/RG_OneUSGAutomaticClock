@@ -703,14 +703,14 @@ def main():
     )
     parser.add_argument('-m', '--minutes', type=float, help="Minutes to clock. Use 0 or negative to clock out immediately after clocking in. Omit when using --clock-out.")
     parser.add_argument('--clock-out', action='store_true', help='Skip clock-in and clock out immediately (recovery mode for failed clock-outs)')
-    parser.add_argument('--ui', action='store_true', help='Run with visible Chrome UI (default is headless)')
+    parser.add_argument('--hours', action='store_true', help='Show week-to-date hours without clocking in or out')
     parser.add_argument('--debug', action='store_true', help='Verbose debug output and artifact dumps on failure')
     parser.add_argument('--dump-dir', default=os.environ.get('ONEUSG_DUMP_DIR', ''), help='Directory to write debug artifacts (png/html/url)')
     parser.add_argument('--duo-timeout', type=int, default=int(os.environ.get('ONEUSG_DUO_TIMEOUT', DUO_TIMEOUT_SECONDS)), help='Seconds to wait for Duo/SSO completion')
     args = vars(parser.parse_args())
 
-    if args.get('minutes') is None and not args.get('clock_out'):
-        parser.error("Either -m/--minutes or --clock-out is required")
+    if args.get('minutes') is None and not args.get('clock_out') and not args.get('hours'):
+        parser.error("Either -m/--minutes or --clock-out or --hours is required")
 
     load_dotenv()
 
@@ -760,7 +760,10 @@ def main():
 
     ctx = init_browser(headless=headless, dump_dir=dump_dir)
 
-    if clock_out_only:
+    show_hours_only = bool(args.get('hours'))
+    if show_hours_only:
+        print(f'\nChecking week-to-date hours at {get_est_time_str()}...\n')
+    elif clock_out_only:
         print(f'\nClocking out immediately at {get_est_time_str()} (recovery / immediate clock-out mode)...\n')
     else:
         print(f'\nClocking {minutes} minutes starting at {get_est_time_str()}...\n')
@@ -784,12 +787,20 @@ def main():
                     continue
                 raise
 
+        if show_hours_only:
+            from hours_summary import format_weekly_total
+            print(format_weekly_total(ctx))
+            return 0
+        from hours_summary import format_weekly_total
+        print(format_weekly_total(ctx))
         if clock_out_only:
             # Recovery / immediate clock-out: skip clock-in entirely.
             pass
         else:
             if not clock_actions.clock_in(ctx):
                 return 1
+            from hours_summary import format_weekly_total
+            print(format_weekly_total(ctx))
 
             # Keep session alive by refreshing every 15 min, then clock out.
             # Uses wall-clock time so laptop sleep doesn't cause the countdown to drift.
@@ -824,6 +835,8 @@ def main():
         ctx, ok = _clock_out_with_recovery(ctx, headless, dump_dir)
         if ok:
             print(f'\nNow clocked out. The current time is {get_est_time_str()}.\n')
+            from hours_summary import format_weekly_total
+            print(format_weekly_total(ctx))
         else:
             browser_utils.dump_artifacts(ctx, "clock_out_failed")
             notify_user_with_ack("Clock-out failed", "Could not clock out. Please clock out manually!", require_ack=True)
