@@ -703,6 +703,7 @@ def main():
     )
     parser.add_argument('-m', '--minutes', type=float, help="Minutes to clock. Use 0 or negative to clock out immediately after clocking in. Omit when using --clock-out.")
     parser.add_argument('--clock-out', action='store_true', help='Skip clock-in and clock out immediately (recovery mode for failed clock-outs)')
+    parser.add_argument('--ui', action='store_true', help='Show browser window (default headless)')
     parser.add_argument('--hours', action='store_true', help='Show week-to-date hours without clocking in or out')
     parser.add_argument('--debug', action='store_true', help='Verbose debug output and artifact dumps on failure')
     parser.add_argument('--dump-dir', default=os.environ.get('ONEUSG_DUMP_DIR', ''), help='Directory to write debug artifacts (png/html/url)')

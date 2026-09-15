@@ -91,7 +91,7 @@ _HEADER_DATE_PAT = re.compile(
     re.IGNORECASE,
 )
 _PUNCH_PAT = re.compile(
-    r"\b(In|Out)\s*,?\s*(\d{1,2}:\d{2}(?::\d{2})?\s*[AaPp]\s*\.?\s*[Mm]\s*\.?)"
+    r"\b(In|Out)\s*,?\s*(\d{1,2}:\d{2}(?::\d{2})?\s*[AaPp]\s*\.?\s*[Mm]\.?)"
     r"(?:\s+(\d{1,2}/\d{1,2}/\d{2,4}))?",
     re.IGNORECASE,
 )
