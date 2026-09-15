@@ -791,12 +791,16 @@ def main():
             from hours_summary import format_weekly_total
             print(format_weekly_total(ctx))
             return 0
-        from hours_summary import format_weekly_total
+        from hours_summary import format_weekly_total, get_weekly_total_hours, WEEKLY_CAP_HOURS
         print(format_weekly_total(ctx))
         if clock_out_only:
             # Recovery / immediate clock-out: skip clock-in entirely.
             pass
         else:
+            cap_total = get_weekly_total_hours(ctx)
+            if cap_total is not None and cap_total >= WEEKLY_CAP_HOURS:
+                print(f"Weekly cap reached ({cap_total:.2f}h / {WEEKLY_CAP_HOURS:.0f}h), not clocking in.")
+                return 0
             if not clock_actions.clock_in(ctx):
                 return 1
             from hours_summary import format_weekly_total

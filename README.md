@@ -98,8 +98,10 @@ gatech-clock -m 60 --ui
 # Clock out immediately without clocking in (recovery mode)
 gatech-clock --clock-out
 
-# Show week-to-date hours without clocking in or out
+# Show week-to-date total (single line, never per-day detail)
 gatech-clock --hours
+
+# Clock-in refuses once the week hits the 20h cap
 
 # 0 or negative minutes also clock out immediately
 gatech-clock -m 0
