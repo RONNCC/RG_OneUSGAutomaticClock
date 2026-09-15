@@ -704,8 +704,7 @@ def main():
     parser.add_argument('-m', '--minutes', type=float, help="Minutes to clock. Use 0 or negative to clock out immediately after clocking in. Omit when using --clock-out.")
     parser.add_argument('--clock-out', action='store_true', help='Skip clock-in and clock out immediately (recovery mode for failed clock-outs)')
     parser.add_argument('--ui', action='store_true', help='Show browser window (default headless)')
-    parser.add_argument('--hours', action='store_true', help='Show week-to-date hours without clocking in or out')
-    parser.add_argument('--debug', action='store_true', help='Verbose debug output and artifact dumps on failure')
+    parser.add_argument('--max-hours', type=float, default=20.0, help='Maximum weekly hours cap (default 20)')
     parser.add_argument('--dump-dir', default=os.environ.get('ONEUSG_DUMP_DIR', ''), help='Directory to write debug artifacts (png/html/url)')
     parser.add_argument('--duo-timeout', type=int, default=int(os.environ.get('ONEUSG_DUO_TIMEOUT', DUO_TIMEOUT_SECONDS)), help='Seconds to wait for Duo/SSO completion')
     args = vars(parser.parse_args())
@@ -802,6 +801,12 @@ def main():
             if cap_total is not None and cap_total >= WEEKLY_CAP_HOURS:
                 print(f"Weekly cap reached ({cap_total:.2f}h / {WEEKLY_CAP_HOURS:.0f}h), not clocking in.")
                 return 0
+            if args.get('max_hours') is not None and args['max_hours'] != WEEKLY_CAP_HOURS:
+                remaining = args['max_hours'] * 60 - cap_total * 60 if cap_total is not None else args['max_hours'] * 60
+                if minutes > remaining:
+                    minutes = remaining
+                    print(f"Note: Capping minutes to {minutes} to stay within --max-hours {args['max_hours']}h cap")
+            total_seconds = max(0, int(round(minutes * 60)))
             if not clock_actions.clock_in(ctx):
                 return 1
             from hours_summary import format_weekly_total
