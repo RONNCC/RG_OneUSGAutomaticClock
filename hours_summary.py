@@ -80,7 +80,7 @@ _DAY_PAT = re.compile(
 )
 _TIME_PAT = re.compile(r"\b(\d{1,2}:\d{2}\s*(?:[AaPp]\s*\.?\s*[Mm]\s*\.?)?)")
 _DATE_PAT = re.compile(r"\b(\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b")
-_HOURS_PAT = re.compile(r"\b(\d{1,2}\.\d{1,2})\s*(?:h(?:rs?|ours?)?)?\b", re.IGNORECASE)
+_HOURS_PAT = re.compile(r"\b(\d{1,3}\.\d{1,2})\s*(?:h(?:rs?|ours?)?)?\b", re.IGNORECASE)
 
 _REPORTED_PAT = re.compile(r"Reported\s+(\d+\.\d+)", re.IGNORECASE)
 _SUBMITTED_PAT = re.compile(r"Submitted\s+(\d+\.\d+)\s*Hours?", re.IGNORECASE)
@@ -143,11 +143,11 @@ def _label_for_punch_date(mdY):
 
 
 def _parse_week(text):
-    """Single computation: (per-day lines, week total). (None, None) only when unreadable."""
+    """Single computation: (per-day lines, week total). ([], 0.0) when no punches found."""
     if not text or not str(text).strip():
         return ([], 0.0)
     cleaned = re.sub(r"<[^>]+>", " ", str(text))
-    cleaned = re.sub(r"&nbsp;?", " ", cleaned)
+    cleaned = re.sub(r"&nbsp;?|&#160;|\xa0", " ", cleaned)
     total = None
     m = _REPORTED_PAT.search(cleaned)
     if m:
@@ -158,15 +158,17 @@ def _parse_week(text):
             total = float(m.group(1))
     default_label = _header_label(cleaned)
     punches = []
-    seen = set()
+    prev = None
     for m in _PUNCH_PAT.finditer(cleaned):
         kind = m.group(1).capitalize()
         mins = _to_minutes(m.group(2))
         if mins is None:
             continue
-        if (kind, mins) in seen:
+        if re.search(r"last\s+action", cleaned[max(0, m.start() - 20):m.start()], re.IGNORECASE):
             continue  # 'Last action' line repeats the glued punch
-        seen.add((kind, mins))
+        if (kind, mins) == prev:
+            continue  # glued repeat of the previous punch
+        prev = (kind, mins)
         punches.append((kind, mins, m.group(3)))
     lines = []
     if punches:
@@ -290,6 +292,8 @@ def format_weekly_total(ctx):
         left = WEEKLY_CAP_HOURS - total
         if left < 0:
             return "%s (over 20h cap by %.2fh, do not clock in)" % (line, -left)
+        if left == 0:
+            return "%s (at 20h cap, do not clock in)" % line
         return "%s (%.2fh left of 20h cap)" % (line, left)
     except Exception:
         return FALLBACK
