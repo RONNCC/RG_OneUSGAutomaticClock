@@ -103,6 +103,10 @@ gatech-clock --hours
 
 # Clock-in refuses once the week hits the 20h cap
 
+# Cap this run so current week-to-date hours + requested minutes stay <= 15h
+# (lowers the built-in 20h cap; trims -m automatically, refuses if already at/over cap)
+gatech-clock -m 90 --max-hours 15
+
 # 0 or negative minutes also clock out immediately
 gatech-clock -m 0
 
