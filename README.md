@@ -102,6 +102,12 @@ gatech-clock --clock-out
 gatech-clock --hours
 # -> Week total so far: 12.50h (7.50h left of 20h cap)
 
+# List every day's clock in/out punches for the week, plus total
+gatech-clock --hours --detail
+# -> Mon 09/08: In 8:00 AM, Out 5:00 PM (9.00h)
+# -> Tue 09/09: In 8:30 AM, Out 4:30 PM (8.00h)
+# -> Week total so far: 17.00h
+
 # Clock-in refuses once the week hits the 20h cap
 
 # Cap this run so current week-to-date hours + requested minutes stay <= 15h

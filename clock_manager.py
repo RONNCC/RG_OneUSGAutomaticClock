@@ -706,6 +706,7 @@ def main():
     parser.add_argument('--clock-out', action='store_true', help='Skip clock-in and clock out immediately (recovery mode for failed clock-outs)')
     parser.add_argument('--ui', action='store_true', help='Show browser window (default headless)')
     parser.add_argument('--hours', action='store_true', help='Show week-to-date hours without clocking in or out')
+    parser.add_argument('--detail', action='store_true', help='With --hours, also list each day\'s clock in/out punches (default: single total line)')
     parser.add_argument('--debug', action='store_true', help='Verbose debug output and artifact dumps on failure')
     parser.add_argument('--max-hours', type=float, default=None, help='Cap weekly hours at this value, trimming -m/--minutes so current hours + requested minutes stay <= this cap (built-in hard cap is 20h; a higher value here has no effect)')
     parser.add_argument('--dump-dir', default=os.environ.get('ONEUSG_DUMP_DIR', ''), help='Directory to write debug artifacts (png/html/url)')
@@ -794,8 +795,12 @@ def main():
                 raise
 
         if show_hours_only:
-            from hours_summary import format_weekly_total
-            print(format_weekly_total(ctx))
+            if args.get('detail'):
+                from hours_summary import format_weekly_summary
+                print(format_weekly_summary(ctx))
+            else:
+                from hours_summary import format_weekly_total
+                print(format_weekly_total(ctx))
             return 0
         from hours_summary import format_weekly_total, get_weekly_total_hours, WEEKLY_CAP_HOURS
         print(format_weekly_total(ctx))
