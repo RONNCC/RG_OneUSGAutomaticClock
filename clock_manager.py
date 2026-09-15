@@ -55,6 +55,7 @@ import os
 import argparse
 import socket
 import subprocess
+import math
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse, parse_qs
 from urllib.error import URLError
@@ -704,13 +705,18 @@ def main():
     parser.add_argument('-m', '--minutes', type=float, help="Minutes to clock. Use 0 or negative to clock out immediately after clocking in. Omit when using --clock-out.")
     parser.add_argument('--clock-out', action='store_true', help='Skip clock-in and clock out immediately (recovery mode for failed clock-outs)')
     parser.add_argument('--ui', action='store_true', help='Show browser window (default headless)')
-    parser.add_argument('--max-hours', type=float, default=20.0, help='Maximum weekly hours cap (default 20)')
+    parser.add_argument('--hours', action='store_true', help='Show week-to-date hours without clocking in or out')
+    parser.add_argument('--debug', action='store_true', help='Verbose debug output and artifact dumps on failure')
+    parser.add_argument('--max-hours', type=float, default=None, help='Cap weekly hours at this value, trimming -m/--minutes so current hours + requested minutes stay <= this cap (built-in hard cap is 20h; a higher value here has no effect)')
     parser.add_argument('--dump-dir', default=os.environ.get('ONEUSG_DUMP_DIR', ''), help='Directory to write debug artifacts (png/html/url)')
     parser.add_argument('--duo-timeout', type=int, default=int(os.environ.get('ONEUSG_DUO_TIMEOUT', DUO_TIMEOUT_SECONDS)), help='Seconds to wait for Duo/SSO completion')
     args = vars(parser.parse_args())
 
     if args.get('minutes') is None and not args.get('clock_out') and not args.get('hours'):
         parser.error("Either -m/--minutes or --clock-out or --hours is required")
+
+    if args.get('max_hours') is not None and not (math.isfinite(args['max_hours']) and args['max_hours'] > 0):
+        parser.error("--max-hours must be a positive number")
 
     load_dotenv()
 
@@ -798,14 +804,18 @@ def main():
             pass
         else:
             cap_total = get_weekly_total_hours(ctx)
-            if cap_total is not None and cap_total >= WEEKLY_CAP_HOURS:
-                print(f"Weekly cap reached ({cap_total:.2f}h / {WEEKLY_CAP_HOURS:.0f}h), not clocking in.")
-                return 0
-            if args.get('max_hours') is not None and args['max_hours'] != WEEKLY_CAP_HOURS:
-                remaining = args['max_hours'] * 60 - cap_total * 60 if cap_total is not None else args['max_hours'] * 60
-                if minutes > remaining:
-                    minutes = remaining
-                    print(f"Note: Capping minutes to {minutes} to stay within --max-hours {args['max_hours']}h cap")
+            effective_cap = min(WEEKLY_CAP_HOURS, args['max_hours']) if args.get('max_hours') is not None else WEEKLY_CAP_HOURS
+            if cap_total is None:
+                if args.get('max_hours') is not None:
+                    print(f"Note: current weekly hours unavailable; cannot verify --max-hours {args['max_hours']:.2f}h cap.")
+            else:
+                if cap_total >= effective_cap:
+                    print(f"Weekly cap reached ({cap_total:.2f}h / {effective_cap:.2f}h), not clocking in.")
+                    return 0
+                remaining_minutes = (effective_cap - cap_total) * 60
+                if minutes > remaining_minutes:
+                    minutes = remaining_minutes
+                    print(f"Note: Capping minutes to {minutes:.0f} to stay within {effective_cap:.2f}h cap")
             total_seconds = max(0, int(round(minutes * 60)))
             if not clock_actions.clock_in(ctx):
                 return 1
