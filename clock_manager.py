@@ -754,28 +754,29 @@ def main():
     minutes = args.get('minutes') or 0
     total_seconds = max(0, int(round(minutes * 60)))
 
-    ensure_chromedriver_installed()
-
-    # Prevent macOS from idle-sleeping while we're clocked in.
     caffeinate_proc = None
-    if sys.platform == "darwin":
-        try:
-            caffeinate_proc = subprocess.Popen(["caffeinate", "-i"])
-            logger.debug("caffeinate started to prevent idle sleep")
-        except Exception:
-            pass
-
-    ctx = init_browser(headless=headless, dump_dir=dump_dir)
-
-    show_hours_only = bool(args.get('hours'))
-    if show_hours_only:
-        print(f'\nChecking week-to-date hours at {get_est_time_str()}...\n')
-    elif clock_out_only:
-        print(f'\nClocking out immediately at {get_est_time_str()} (recovery / immediate clock-out mode)...\n')
-    else:
-        print(f'\nClocking {minutes} minutes starting at {get_est_time_str()}...\n')
-
+    ctx = None
+    clocked_in = False
     try:
+        ensure_chromedriver_installed()
+
+        # Prevent macOS from idle-sleeping while we're clocked in.
+        if sys.platform == "darwin":
+            try:
+                caffeinate_proc = subprocess.Popen(["caffeinate", "-i"])
+                logger.debug("caffeinate started to prevent idle sleep")
+            except Exception:
+                pass
+
+        ctx = init_browser(headless=headless, dump_dir=dump_dir)
+
+        show_hours_only = bool(args.get('hours'))
+        if show_hours_only:
+            print(f'\nChecking week-to-date hours at {get_est_time_str()}...\n')
+        elif clock_out_only:
+            print(f'\nClocking out immediately at {get_est_time_str()} (recovery / immediate clock-out mode)...\n')
+        else:
+            print(f'\nClocking {minutes} minutes starting at {get_est_time_str()}...\n')
         # Login with one retry on any failure (session death, RestartRequested, etc.)
         for attempt in range(2):
             try:
@@ -824,6 +825,7 @@ def main():
             total_seconds = max(0, int(round(minutes * 60)))
             if not clock_actions.clock_in(ctx):
                 return 1
+            clocked_in = True
             from hours_summary import format_weekly_total
             print(format_weekly_total(ctx))
 
@@ -859,6 +861,7 @@ def main():
 
         ctx, ok = _clock_out_with_recovery(ctx, headless, dump_dir)
         if ok:
+            clocked_in = False
             print(f'\nNow clocked out. The current time is {get_est_time_str()}.\n')
             from hours_summary import format_weekly_total
             print(format_weekly_total(ctx))
@@ -867,8 +870,27 @@ def main():
             notify_user_with_ack("Clock-out failed", "Could not clock out. Please clock out manually!", require_ack=True)
             return 1
         return 0
+    except KeyboardInterrupt:
+        if clocked_in:
+            print(f"\nInterrupted! Clocking out at {get_est_time_str()} before exit...")
+            try:
+                ctx, ok = _clock_out_with_recovery(ctx, headless, dump_dir)
+                if ok:
+                    print(f'\nNow clocked out. The current time is {get_est_time_str()}.\n')
+                    from hours_summary import format_weekly_total
+                    print(format_weekly_total(ctx))
+                    return 130
+                notify_user_with_ack("Clock-out failed", "Interrupted but could not clock out. Please clock out manually!", require_ack=True)
+                return 1
+            except Exception as ex:
+                logger.debug("Clock-out during interrupt failed: %s", ex)
+                notify_user_with_ack("Clock-out failed", "Interrupted and error occurred while clocking out.", require_ack=True)
+                return 1
+        print("\nInterrupted.")
+        return 130
     except Exception as e:
-        browser_utils.dump_artifacts(ctx, "unhandled_exception")
+        if ctx is not None:
+            browser_utils.dump_artifacts(ctx, "unhandled_exception")
         if logger.level <= logging.DEBUG:
             raise
         print(f"Unexpected error. Re-run with --debug to see details.\n{e}")
@@ -876,7 +898,7 @@ def main():
         return 1
     finally:
         try:
-            if ctx and ctx.driver is not None:
+            if ctx is not None and getattr(ctx, "driver", None) is not None:
                 _quiet_quit(ctx.driver)
         except Exception:
             pass
