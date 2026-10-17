@@ -422,7 +422,7 @@ def loginGT(ctx: AppContext):
                 break
             
             # Try Duo automation
-            duo_auth.try_duo_other_options(
+            duo_progress = duo_auth.try_duo_other_options(
                 ctx,
                 lambda: get_duo_passcode(ctx),
                 lambda el, value: _set_input_value(ctx, el, value),
@@ -433,7 +433,14 @@ def loginGT(ctx: AppContext):
             if iteration % 5 == 0:
                 logger.debug(f"Iteration {iteration}, URL: {current_url[:80]}...")
             
-            if current_url == last_url:
+            # The Duo Universal Prompt is a single-page app whose URL stays
+            # constant across the "Other options" -> "Duo Mobile passcode" ->
+            # Verify steps, and each of those steps is real progress. Don't
+            # treat that as "stuck": only count when nothing changed AND Duo
+            # automation made no progress AND we're not on a Duo prompt (the
+            # --duo-timeout governs how long we wait there).
+            on_duo_prompt = "duosecurity.com" in current_url
+            if current_url == last_url and not duo_progress and not on_duo_prompt:
                 stuck_count += 1
                 if stuck_count >= MAX_STUCK_ITERATIONS:
                     browser_utils.dump_artifacts(ctx, "stuck_state")
