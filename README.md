@@ -200,6 +200,7 @@ gatech-worker                       # 9-6, target 19h, 30-40m breaks
 gatech-worker --dry-run             # print the plan, don't clock in/out
 gatech-worker --once                # one shift, then exit
 gatech-worker --start 10:00 --end 17:00
+gatech-worker --start 09:00 --end 07:00   # overnight window (22h), crosses midnight
 gatech-worker --target 15 --break-min 20 --break-max 30
 gatech-worker --shift-min 90 --shift-max 120
 gatech-worker --hours --detail      # passthrough to gatech-clock
@@ -208,7 +209,7 @@ gatech-worker --hours --detail      # passthrough to gatech-clock
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--start` | `09:00` | Daily window start (24h `HH:MM`) |
-| `--end` | `18:00` | Daily window end |
+| `--end` | `18:00` | Daily window end; may be before `--start` to cross midnight |
 | `--target` | `19.0` | Weekly hour target `(0, 20]` |
 | `--break-min` / `--break-max` | `30` / `40` | Break minutes between shifts |
 | `--shift-min` / `--shift-max` | `60` / `150` | Work chunk minutes |
@@ -220,6 +221,24 @@ gatech-worker --hours --detail      # passthrough to gatech-clock
 Run the worker in its own terminal (or under `tmux`/`nohup`) since it loops all
 day. It sleeps until the window opens, takes breaks between shifts, and exits
 once the target is reached.
+
+### Long-run durability
+
+Built in for forgettable/all-day runs:
+
+- Every child `gatech-clock` run has a **hard timeout** (shift length + 45m
+  grace). A hung chromedriver gets SIGTERM→SIGKILL'd whole-process-group, so
+  the worker never wedges silently.
+- If a shift ends abnormally (nonzero exit, timeout, kill), the worker runs
+  **recovery mode** (`gatech-clock --clock-out`, idempotent) before scheduling
+  anything else — an unclocked-out punch is never followed straight into a new
+  clock-in. Persistent recovery failure blocks further shifts and keeps retrying
+  on a 15m cadence until confirmed clocked out.
+- **Exponential backoff** between repeated failures (2m, 4m, … capped at 20m);
+  a clean shift resets it.
+- **Ctrl+C** is forwarded to the child so it can clock out cleanly, then a
+  final recovery check guards the exit.
+- macOS notifications (`notifications.py`) fire on unrecoverable states.
 
 ---
 
