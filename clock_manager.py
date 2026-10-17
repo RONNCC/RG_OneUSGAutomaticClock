@@ -343,9 +343,12 @@ def loginGT(ctx: AppContext):
     gatech_login_password.clear()
     gatech_login_password.send_keys(PASSWORD)
 
+    # GT CAS renders the LOGIN control as <input type="submit" /> with no
+    # name attribute and a JS-set label, so match by type in a single
+    # combined locator instead of paying a full timeout for each fallback.
     submit_button = browser_utils.find_first(
         ctx,
-        [(By.NAME, "submit"), (By.CSS_SELECTOR, "button[type='submit']"), (By.CSS_SELECTOR, "input[type='submit']")],
+        [(By.CSS_SELECTOR, "#fm1 input[type='submit'], input[type='submit'], button[type='submit'], [name='submit']")],
         timeout=10,
         clickable=True,
     )
@@ -353,7 +356,7 @@ def loginGT(ctx: AppContext):
 
     # Fail fast if GT rejects the credentials instead of falling through into Duo/OneUSG checks.
     try:
-        WebDriverWait(ctx.driver, 5).until(
+        WebDriverWait(ctx.driver, 20).until(
             lambda driver: (
                 clock_actions.is_on_clock_page(ctx)
                 or "sso.gatech.edu/cas/login" not in (driver.current_url or "")
