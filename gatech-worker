@@ -1,0 +1,15 @@
+#!/bin/sh
+# gatech-worker — lives in the RG_OneUSGAutomaticClock repo.
+# On PATH via ~/.local/bin/gatech-worker -> this file.
+# Saturates weekly OneUSG hours 9am-6pm with 30-40m breaks, target ~19h.
+# Usage: gatech-worker [--start 09:00] [--end 18:00] [--target 19] [--dry-run] [--once]
+SCRIPT="$0"
+while [ -L "$SCRIPT" ]; do
+  LINK="$(readlink "$SCRIPT")"
+  case "$LINK" in
+    /*) SCRIPT="$LINK" ;;
+    *) SCRIPT="$(dirname "$SCRIPT")/$LINK" ;;
+  esac
+done
+PROJ="$(cd "$(dirname "$SCRIPT")" && pwd)"
+exec uv run --project "$PROJ" python "$PROJ/gatech_worker.py" "$@"

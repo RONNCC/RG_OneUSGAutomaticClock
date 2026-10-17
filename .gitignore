@@ -5,7 +5,10 @@ __pycache__/
 .artifacts/
 .DS_Store
 scripts/
+# Local worker experiments are ignored, but the shipped launchers are tracked.
 *worker*
+!gatech-worker
+!gatech_worker.py
 .agents/
 .claude/
 skills-lock.json

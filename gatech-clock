@@ -1,0 +1,14 @@
+#!/bin/sh
+# gatech-clock — lives in the RG_OneUSGAutomaticClock repo.
+# On PATH via ~/.local/bin/gatech-clock -> this file.
+# Usage: gatech-clock -m 60 | gatech-clock --hours | gatech-clock --clock-out
+SCRIPT="$0"
+while [ -L "$SCRIPT" ]; do
+  LINK="$(readlink "$SCRIPT")"
+  case "$LINK" in
+    /*) SCRIPT="$LINK" ;;
+    *) SCRIPT="$(dirname "$SCRIPT")/$LINK" ;;
+  esac
+done
+PROJ="$(cd "$(dirname "$SCRIPT")" && pwd)"
+exec uv run --project "$PROJ" python "$PROJ/clock_manager.py" "$@"
