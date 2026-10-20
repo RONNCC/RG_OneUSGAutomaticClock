@@ -298,7 +298,7 @@ def main():
     except KeyboardInterrupt:
         log("Worker interrupted; running final recovery clock-out check before exit...")
         try:
-            if not ensure_clocked_out(ui=args.ui, debug=args.debug, duo_timeout=args.duo_timeout, once=args.once):
+            if not ensure_clocked_out(ui=args.ui, debug=args.debug, duo_timeout=args.duo_timeout):
                 return 1
         except Exception as e:
             log(f"Final recovery clock-out failed: {e}")
@@ -316,7 +316,7 @@ def worker_loop(args):
 
         # Never plan or start shifts while the timecard state is unknown.
         if pending_recovery:
-            if ensure_clocked_out(ui=args.ui, debug=args.debug, duo_timeout=args.duo_timeout, once=args.once):
+            if ensure_clocked_out(ui=args.ui, debug=args.debug, duo_timeout=args.duo_timeout):
                 pending_recovery = False
                 recovery_alerted = False
             else:
@@ -381,7 +381,7 @@ def worker_loop(args):
             log("Dry-run / --once finished.")
             if not args.dry_run and rc not in (0, 130):
                 pending_recovery = True
-                ensure_clocked_out(ui=args.ui)
+                ensure_clocked_out(ui=args.ui, debug=args.debug, duo_timeout=args.duo_timeout)
             return
         if rc is None or rc not in (0, 130):
             consecutive_failures += 1

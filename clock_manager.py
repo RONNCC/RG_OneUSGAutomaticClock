@@ -290,48 +290,73 @@ def selectGT(ctx: AppContext):
     if browser_utils.check_existence(ctx, element_to_find="username", method_to_find="name"):
         return True
 
-    # OneUSG has changed this IdP selection page multiple times; try a few robust patterns.
-    try:
-        WebDriverWait(ctx.driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "a")))
-    except Exception:
-        pass
-
-    try:
-        gt_option = browser_utils.find_first(ctx, selectors.GT_IDP_SELECTORS, timeout=5, clickable=True)
-        # If we matched the img inside a link, click the parent anchor.
+    # OneUSG has changed this IdP selection page multiple times and the page
+    # itself is flaky (sometimes slow to render, sometimes a transient error
+    # page), so attempt selection a few times with a fresh page load between
+    # tries instead of failing the whole run on a single timeout.
+    for attempt in range(3):
         try:
-            if gt_option.tag_name.lower() == "img":
-                gt_option = gt_option.find_element(By.XPATH, "./ancestor::a[1]")
+            WebDriverWait(ctx.driver, 10).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "a, button, input[type='radio']")
+                )
+            )
         except Exception:
             pass
 
-        if not browser_utils.safe_click(ctx, gt_option):
-            raise TimeoutException("Unable to click GT IdP option")
-    except TimeoutException:
-        # Fallback: try a JS lookup by link text or image alt.
+        try:
+            gt_option = browser_utils.find_first(ctx, selectors.GT_IDP_SELECTORS, timeout=8, clickable=True)
+            # If we matched the img inside a link, click the parent anchor.
+            try:
+                if gt_option.tag_name.lower() == "img":
+                    gt_option = gt_option.find_element(By.XPATH, "./ancestor::a[1]")
+            except Exception:
+                pass
+
+            if browser_utils.safe_click(ctx, gt_option):
+                landed = browser_utils.check_existence(ctx, element_to_find="username", method_to_find="name")
+                if landed:
+                    return True
+                logger.debug("GT IdP clicked but GT login page not detected yet (attempt %s).", attempt + 1)
+        except Exception as e:
+            logger.debug(f"GT IdP selector lookup failed (attempt {attempt + 1}): {e}")
+
+        # Fallback: JS lookup by link text, title, or image alt.
         try:
             gt_js = ctx.driver.execute_script(
                 """
                 const links = Array.from(document.querySelectorAll('a'));
-                return links.find(a => /Georgia Tech/i.test(a.textContent || '')
-                    || /Georgia Tech/i.test(a.getAttribute('title') || '')
-                    || (a.querySelector('img') && /Georgia Tech/i.test(a.querySelector('img').alt || '')));
+                return links.find(a => /Georgia Tech|Georgia Institute/i.test(a.textContent || '')
+                    || /Georgia Tech|Georgia Institute/i.test(a.getAttribute('title') || '')
+                    || (a.querySelector('img') && /Georgia Tech/i.test(a.querySelector('img').alt || ''))
+                    || /gatech/.test(a.getAttribute('href') || ''));
                 """
             )
             if gt_js is not None and browser_utils.safe_click(ctx, gt_js):
-                return browser_utils.check_existence(ctx, element_to_find="username", method_to_find="name")
+                if browser_utils.check_existence(ctx, element_to_find="username", method_to_find="name"):
+                    return True
         except Exception:
             pass
 
-        browser_utils.dump_artifacts(ctx, "select_gt_not_found")
-        print("...")
-        print("Unable to find the Georgia Tech IdP selector on the OneUSG page.")
-        print("This usually means the IdP selection DOM changed.")
-        print("If you re-run with --debug, the script will save a screenshot + HTML for updating selectors.")
-        _quiet_quit(ctx.driver)
-        return False
+        # Nothing matched (or the click did not reach the GT login page yet).
+        # Reload and try again; this rides out slow/transient IdP proxy pages.
+        if attempt < 2:
+            logger.debug(f"GT IdP selection incomplete; reloading and retrying (attempt {attempt + 2}/3).")
+            try:
+                ctx.driver.get(selectors.CLOCK_PAGE_URL)
+                WebDriverWait(ctx.driver, 15).until(
+                    lambda d: d.execute_script("return document.readyState") == "complete"
+                )
+            except Exception as e:
+                logger.debug(f"Reload after failed IdP selection failed: {e}")
 
-    return browser_utils.check_existence(ctx, element_to_find="username", method_to_find="name")
+    browser_utils.dump_artifacts(ctx, "select_gt_not_found")
+    print("...")
+    print("Unable to find the Georgia Tech IdP selector on the OneUSG page (tried 3 attempts).")
+    print("This usually means the IdP selection DOM changed.")
+    print("If you re-run with --debug, the script will save a screenshot + HTML for updating selectors.")
+    _quiet_quit(ctx.driver)
+    return False
 
 
 def loginGT(ctx: AppContext):

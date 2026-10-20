@@ -7,10 +7,14 @@ GT_IDP_SELECTORS = [
     (By.PARTIAL_LINK_TEXT, "Georgia Tech"),
     (By.CSS_SELECTOR, "a[title*='Georgia Tech' i]"),
     (By.CSS_SELECTOR, "a img[alt*='Georgia Tech' i]"),
+    (By.CSS_SELECTOR, "[aria-label*='Georgia Tech' i]"),
     (By.XPATH, "//*[@id='https_idp_gatech_edu_idp_shibboleth']//a"),
     (By.XPATH, "//*[@id='https_idp_gatech_edu_idp_shibboleth']"),
     (By.XPATH, "//a[contains(@href,'gatech') or contains(@href,'gatech.edu') or contains(.,'Georgia Tech') or contains(.,'Georgia Institute') or .//img[contains(@alt,'Georgia') or contains(@src,'gatech')]]"),
-    (By.XPATH, "//button[contains(.,'Georgia Tech') or contains(.,'Georgia Institute') or contains(.,'Gatech')]")
+    (By.XPATH, "//button[contains(.,'Georgia Tech') or contains(.,'Georgia Institute') or contains(.,'Gatech')]"),
+    (By.XPATH, "//td[contains(@id,'gatech') or contains(.,'Georgia Institute') or contains(., 'Georgia Tech')]"),
+    (By.XPATH, "//*[contains(@id,'gatech')]"),
+    (By.XPATH, "//input[@type='radio' and (contains(@id,'gatech') or contains(@value,'gatech') or contains(@aria-label,'Georgia Tech'))]")
 ]
 
 PUNCH_DROPDOWN_SELECTORS = [
