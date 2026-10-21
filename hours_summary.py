@@ -1,6 +1,7 @@
 """Week-to-date hours summary parsed from the clock page text/HTML."""
 
 import re
+import time
 from datetime import datetime
 
 FALLBACK = "Weekly hours unavailable."
@@ -46,10 +47,40 @@ def total_hours_from_text(text):
     except Exception:
         return None
 
+def _read_week_with_retry(ctx, attempts=3, delay=2.0):
+    """(lines, total) from the live page, retrying while unreadable.
+
+    After a session recovery or fresh login the PeopleSoft timesheet grid can
+    still be rendering; a single read often captures an empty placeholder and
+    used to be parsed as a false 0.00h total. Between attempts, verify we're on
+    the clock page and refresh once if the known clock elements are missing.
+    """
+    lines, total = ([], None)
+    for attempt in range(max(1, attempts)):
+        try:
+            lines, total = _parse_week(_page_text(ctx))
+        except Exception:
+            lines, total = ([], None)
+        if lines or total is not None:
+            return lines, total
+        if attempt < attempts - 1:
+            time.sleep(delay)
+            # If the clock page hasn't rendered its known elements, reload once
+            # to let the timesheet grid come up.
+            try:
+                import clock_actions
+                if not clock_actions.is_on_clock_page(ctx):
+                    ctx.driver.refresh()
+                    time.sleep(delay)
+            except Exception:
+                pass
+    return lines, total
+
+
 def get_weekly_total_hours(ctx):
     """Numeric week-to-date total from live page, else None. Never raises."""
     try:
-        return total_hours_from_text(_page_text(ctx))
+        return _read_week_with_retry(ctx)[1]
     except Exception:
         return None
 
@@ -143,9 +174,16 @@ def _label_for_punch_date(mdY):
 
 
 def _parse_week(text):
-    """Single computation: (per-day lines, week total). ([], 0.0) when no punches found."""
+    """Single computation: (per-day lines, week total). Total is None when the
+    page was unreadable (no punches and no explicit reported/submitted total).
+
+    Important: never fabricate a 0.0 total just because nothing matched a parse
+    pattern — that used to happen when the timesheet grid hadn't finished
+    rendering, producing a confident-but-false "Week total so far: 0.00h"
+    (which then hides all real hours and defeats the 20h cap logic).
+    """
     if not text or not str(text).strip():
-        return ([], 0.0)
+        return ([], None)
     cleaned = re.sub(r"<[^>]+>", " ", str(text))
     cleaned = re.sub(r"&nbsp;?|&#160;|\xa0", " ", cleaned)
     total = None
@@ -202,8 +240,8 @@ def _parse_week(text):
                              % (label, _fmt_time(in_mins), _fmt_time(out[0]), hrs))
         if total is None:
             total = sum(((o[0] - i[0]) % (24 * 60)) / 60.0
-                        for i, o in pairs if o is not None)
-        return (lines, total if total is not None else 0.0)
+                        for i, o in pairs if o is not None) or None
+        return (lines, total)
     matches = list(_DAY_PAT.finditer(cleaned))
     rows = []
     for i, m in enumerate(matches):
@@ -252,7 +290,7 @@ def _parse_week(text):
         else:
             rows.append((order, i, "%s: %.2fh" % (head, day_hours), day_hours))
     if not rows:
-        return ([], total if total is not None else 0.0)
+        return ([], total if total is not None else None)
     rows.sort(key=lambda r: (r[0], r[1]))
     if total is None:
         total = sum(r[3] for r in rows)
@@ -261,9 +299,18 @@ def summarize_punches(text):
     """Parse page text/HTML into per-day in/out lines plus week total."""
     try:
         lines, total = _parse_week(text)
-        if not lines:
-            return "No punches found.\nWeek total so far: %.2fh" % (total if total is not None else 0.0)
-        return "\n".join(lines + ["Week total so far: %.2fh" % total])
+        out = []
+        if lines:
+            out.extend(lines)
+        if total is not None:
+            out.append("Week total so far: %.2fh" % total)
+        elif not lines:
+            # Nothing parseable: make it obvious the page wasn't readable rather
+            # than implying a real 0.00h total.
+            return "No punches found (week total unreadable)."
+        else:
+            out.append("Week total so far: unavailable (page unreadable)")
+        return "\n".join(out)
     except Exception:
         return FALLBACK
 
@@ -282,10 +329,7 @@ def format_weekly_summary(ctx):
 def format_weekly_total(ctx):
     """Single-line total with cap remaining, e.g. 'Week total so far: 1.71h (18.29h left of 20h cap)'. Never raises."""
     try:
-        text = _page_text(ctx)
-        if text is None:
-            return FALLBACK
-        total = total_hours_from_text(text)
+        total = _read_week_with_retry(ctx)[1]
         if total is None:
             return FALLBACK
         line = "Week total so far: %.2fh" % total
