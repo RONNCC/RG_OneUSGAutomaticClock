@@ -332,6 +332,9 @@ clock-out of a leftover punch, clock-out before any shift after an abnormal
 exit, retry-without-abort when Ctrl+C lands during a clock-out, and the clean
 exit codes for `Ctrl+C`.
 
+CI runs the same suite on every push and pull request
+(`.github/workflows/tests.yml`: Ubuntu Python 3.9 + 3.12, macOS Python 3.12).
+
 ---
 
 ## How It Works

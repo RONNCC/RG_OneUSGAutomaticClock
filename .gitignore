@@ -3,12 +3,14 @@
 __pycache__/
 *.pyc
 .artifacts/
+.pytest_cache/
 .DS_Store
 scripts/
-# Local worker experiments are ignored, but the shipped launchers are tracked.
-*worker*
-!gatech-worker
-!gatech_worker.py
+# Local worker experiments at the repo root are ignored, but the shipped
+# launchers and the test suite are tracked (root-anchored so tests/*worker* is not caught).
+/*worker*
+!/gatech-worker
+!/gatech_worker.py
 .agents/
 .claude/
 skills-lock.json
