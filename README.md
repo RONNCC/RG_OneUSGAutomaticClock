@@ -229,6 +229,10 @@ Built in for forgettable/all-day runs:
 - Every child `gatech-clock` run has a **hard timeout** (shift length + 45m
   grace). A hung chromedriver gets SIGTERM→SIGKILL'd whole-process-group, so
   the worker never wedges silently.
+- **Startup clock-out**: before the first shift (unless `--dry-run`) the worker
+  runs the idempotent `gatech-clock --clock-out`, so a punch left open by a
+  crashed/killed earlier run is closed instead of being stacked with a new
+  clock-in. If it can't be confirmed, no shift starts and it keeps retrying.
 - If a shift ends abnormally (nonzero exit, timeout, kill), the worker runs
   **recovery mode** (`gatech-clock --clock-out`, idempotent) before scheduling
   anything else — an unclocked-out punch is never followed straight into a new
@@ -237,7 +241,9 @@ Built in for forgettable/all-day runs:
 - **Exponential backoff** between repeated failures (2m, 4m, … capped at 20m);
   a clean shift resets it.
 - **Ctrl+C** is forwarded to the child so it can clock out cleanly, then a
-  final recovery check guards the exit.
+  final recovery check guards the exit. Extra Ctrl+C presses while that final
+  clock-out is running are swallowed and retried (up to 3) rather than killing
+  the worker mid-punch; Ctrl+C never escapes as a traceback.
 - macOS notifications (`notifications.py`) fire on unrecoverable states.
 
 ---
@@ -315,6 +321,19 @@ Check the `./dumps` folder for screenshots and HTML of what the script saw.
 
 ---
 
+## Tests
+
+```bash
+uv run pytest          # 24 tests, no browser or network needed
+```
+
+`tests/test_worker.py` covers the scheduler's recovery guarantees: startup
+clock-out of a leftover punch, clock-out before any shift after an abnormal
+exit, retry-without-abort when Ctrl+C lands during a clock-out, and the clean
+exit codes for `Ctrl+C`.
+
+---
+
 ## How It Works
 
 **Clock-in/out** (`gatech-clock -m <minutes>`):
@@ -333,6 +352,9 @@ Check the `./dumps` folder for screenshots and HTML of what the script saw.
 5. Selects "Clock Out" and submits (with automatic session recovery if needed)
 
 **Worker scheduler** (`gatech-worker`):
+0. Clocks out anything a previous run left open (`gatech-clock --clock-out`,
+   idempotent) before planning any shift — a stale clock-in is never stacked
+   with a new one.
 1. Checks week-to-date hours (`gatech-clock --hours`).
 2. If before the window, sleeps until `--start`; if after `--end`, sleeps until
    the next day's window.
